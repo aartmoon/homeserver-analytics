@@ -1,0 +1,156 @@
+apiVersion: 1
+groups:
+- orgId: 1
+  name: Containers
+  folder: Monitoring
+  interval: 30s
+  rules:
+  - uid: container-0
+    title: ContainerUnavailable
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (container_up == 0) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 3m
+    annotations:
+      summary: ContainerUnavailable
+    labels:
+      severity: critical
+      alert_owner: grafana
+    isPaused: false
+  - uid: container-1
+    title: ContainerRestarts
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (increase(container_restarts_total[15m]) >= 3) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    annotations:
+      summary: ContainerRestarts
+    labels:
+      severity: warning
+      alert_owner: grafana
+    isPaused: false
+  - uid: container-2
+    title: ContainerOOM
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (increase(container_oom_events_total[15m]) > 0) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    annotations:
+      summary: ContainerOOM
+    labels:
+      severity: critical
+      alert_owner: grafana
+    isPaused: false
+  - uid: container-3
+    title: ContainerCollectorMissing
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (time() - container_collector_last_success_timestamp_seconds > 180)
+          * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    annotations:
+      summary: ContainerCollectorMissing
+    labels:
+      severity: critical
+      alert_owner: grafana
+    isPaused: false

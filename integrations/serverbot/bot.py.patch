@@ -1,0 +1,39 @@
+--- a/bot.py
++++ b/bot.py
+@@ -9,6 +9,7 @@
+ from aiogram.client.session.aiohttp import AiohttpSession
+ from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+ from config import Config
++from monitoring_webhooks import MonitoringWebhooks
+ 
+ config = Config()
+ OWNER_ID = config.owner
+@@ -101,8 +102,26 @@
+             raise SystemExit("Бот уже запущен")
+         session = AiohttpSession(proxy=config.proxy, timeout=180)
+         async with Bot(token=config.token, session=session) as bot:
+-            await bot.set_my_commands([BotCommand(command="status", description="Состояние сервера")])
+-            await dp.start_polling(bot)
++            bridge = None
++            try:
++                if os.environ.get("MONITORING_WEBHOOKS_ENABLED", "0") == "1":
++                    bridge = MonitoringWebhooks(
++                        bot, OWNER_ID, config.data,
++                        Path(os.environ["MONITORING_GRAFANA_SECRET_FILE"]).read_text().strip(),
++                        Path(os.environ["MONITORING_KUMA_SECRET_FILE"]).read_text().strip(),
++                        host=os.environ.get("MONITORING_WEBHOOK_HOST", "127.0.0.1"),
++                        port=int(os.environ.get("MONITORING_WEBHOOK_PORT", "9088")),
++                    )
++                    await bridge.start()
++                try:
++                    async with asyncio.timeout(10):
++                        await bot.set_my_commands([BotCommand(command="status", description="Состояние сервера")])
++                except Exception:
++                    logging.warning("Не удалось обновить команды Telegram; продолжаем запуск")
++                await dp.start_polling(bot, close_bot_session=False)
++            finally:
++                if bridge is not None:
++                    await bridge.close()
+ 
+ 
+ if __name__ == "__main__":

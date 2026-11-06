@@ -1,0 +1,147 @@
+name: monitoring
+services:
+  prometheus:
+    restart: unless-stopped
+    security_opt: &id001
+    - no-new-privileges:true
+    cap_drop: &id002
+    - ALL
+    logging: &id003
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    cpus: '1.0'
+    mem_limit: 768m
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=15d
+    - --storage.tsdb.retention.size=5GB
+    - --web.listen-address=127.0.0.1:9090
+    volumes:
+    - ./prometheus:/etc/prometheus:ro
+    - prometheus:/prometheus
+    network_mode: host
+  node:
+    restart: unless-stopped
+    security_opt: *id001
+    cap_drop: *id002
+    logging: *id003
+    cpus: '0.50'
+    mem_limit: 256m
+    image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    command:
+    - --path.procfs=/host/proc
+    - --path.sysfs=/host/sys
+    - --path.rootfs=/rootfs
+    - --collector.textfile.directory=/textfile
+    - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/docker/netns|var/lib/docker/.+)($|/)
+    - --collector.netdev.device-exclude=^(veth.*|br-.*|docker.*|lo)$
+    - --web.listen-address=127.0.0.1:9100
+    pid: host
+    read_only: true
+    volumes:
+    - /proc:/host/proc:ro
+    - /sys:/host/sys:ro
+    - /:/rootfs:ro,rslave
+    - ./textfile:/textfile:ro
+    network_mode: host
+  blackbox:
+    restart: unless-stopped
+    security_opt: *id001
+    cap_drop: *id002
+    logging: *id003
+    networks: &id004
+    - monitoring
+    cpus: '0.50'
+    mem_limit: 256m
+    image: prom/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13
+    command:
+    - --config.file=/etc/blackbox/blackbox.yml
+    read_only: true
+    volumes:
+    - ./blackbox:/etc/blackbox:ro
+    ports:
+    - 127.0.0.1:9115:9115
+  grafana:
+    restart: unless-stopped
+    security_opt: *id001
+    cap_drop: *id002
+    logging: *id003
+    cpus: '1.0'
+    mem_limit: 512m
+    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
+    volumes:
+    - ./data/grafana:/var/lib/grafana
+    - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    - ./secrets/grafana_admin_password:/run/secrets/admin_password:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/admin_password
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_METRICS_ENABLED: 'true'
+      GF_SMTP_ENABLED: 'false'
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: '3001'
+    user: 1000:1000
+    network_mode: host
+    env_file:
+    - ./secrets/grafana-webhook.env
+  kuma:
+    restart: unless-stopped
+    security_opt: *id001
+    cap_drop: *id002
+    logging: *id003
+    networks: *id004
+    cpus: '0.50'
+    mem_limit: 512m
+    image: louislam/uptime-kuma:2.5.9@sha256:e88415a90dd2f7efecdbc18de0490aff292764a3ac471531bf1d0481725591bd
+    ports:
+    - 127.0.0.1:3002:3001
+    volumes:
+    - kuma:/app/data
+    user: 1000:1000
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    user: 1000:1000
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 128m
+    cpus: '0.25'
+    environment:
+      DATA_SOURCE_URI: postgres:5432/rukodelie?sslmode=disable&connect_timeout=5
+      DATA_SOURCE_USER: monitoring_exporter
+      DATA_SOURCE_PASS_FILE: /run/secrets/postgres_password
+    volumes:
+    - ./secrets/postgres_password:/run/secrets/postgres_password:ro
+    networks:
+    - monitoring
+    - database
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    ports:
+    - 127.0.0.1:9187:9187
+networks:
+  monitoring:
+    name: monitoring_private
+    external: true
+  database:
+    external: true
+    name: ruk_backend
+volumes:
+  prometheus: {}
+  grafana: {}
+  kuma: {}

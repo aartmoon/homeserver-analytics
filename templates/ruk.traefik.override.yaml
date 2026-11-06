@@ -1,0 +1,24 @@
+services:
+  traefik:
+    command:
+    - --providers.docker=true
+    - --providers.docker.exposedbydefault=false
+    - --entrypoints.web.address=:80
+    - --entrypoints.web.http.redirections.entrypoint.to=websecure
+    - --entrypoints.web.http.redirections.entrypoint.scheme=https
+    - --entrypoints.web.http.redirections.entrypoint.permanent=true
+    - --entrypoints.websecure.address=:443
+    - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL
+      in .env}
+    - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+    - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+    - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+    - --ping=true
+    - --entrypoints.metrics.address=:8082
+    - --metrics.prometheus=true
+    - --metrics.prometheus.entrypoint=metrics
+    - --metrics.prometheus.addServicesLabels=true
+    - --metrics.prometheus.addRoutersLabels=false
+    - --metrics.prometheus.buckets=0.1,0.3,1,2.5,5
+    ports:
+    - 127.0.0.1:8082:8082

@@ -1,0 +1,14 @@
+apiVersion: 1
+contactPoints:
+- orgId: 1
+  name: serverbot
+  receivers:
+  - uid: serverbot-webhook
+    type: webhook
+    disableResolveMessage: false
+    settings:
+      url: http://127.0.0.1:9088/grafana
+      httpMethod: POST
+      authorization_scheme: Bearer
+      authorization_credentials: $SERVERBOT_GRAFANA_WEBHOOK_SECRET
+      maxAlerts: '100'

@@ -1,0 +1,14 @@
+[
+  {
+    "targets": [
+      "https://REPLACE_WITH_REAL_HOST/"
+    ],
+    "labels": {
+      "project": "REPLACE_PROJECT",
+      "service": "homepage",
+      "environment": "production",
+      "instance": "homepage",
+      "module": "https_200"
+    }
+  }
+]

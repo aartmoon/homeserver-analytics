@@ -1,0 +1,129 @@
+import asyncio
+import fcntl
+import logging
+import os
+import shutil
+from pathlib import Path
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from config import Config
+from monitoring_webhooks import MonitoringWebhooks
+
+config = Config()
+OWNER_ID = config.owner
+dp = Dispatcher()
+
+
+def keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📊 Состояние сервера", callback_data="status")
+    ]])
+
+
+def get_uptime():
+    seconds = int(float(
+        Path("/proc/uptime").read_text().split()[0]
+    ))
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes = remainder // 60
+
+    return f"⏱ Uptime: {days}д {hours}ч {minutes}м"
+
+
+def get_ram():
+    values = {}
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        name, value = line.split(":", 1)
+        values[name] = int(value.strip().split()[0])
+
+    total = values["MemTotal"]
+    used = total - values["MemAvailable"]
+
+    return (
+        f"🧠 RAM: {used / 1048576:.2f} / "
+        f"{total / 1048576:.2f} GiB "
+        f"({used / total * 100:.1f}%)"
+    )
+
+
+def get_disk():
+    total, used, free = shutil.disk_usage("/")
+    gib = 1024 ** 3
+
+    return (
+        f"💾 Диск /: {used / gib:.1f} / "
+        f"{total / gib:.1f} GiB "
+        f"({used / total * 100:.1f}%)"
+    )
+
+
+def get_status():
+    load1, load5, load15 = os.getloadavg()
+    return "\n".join([
+        "🟢 Домашний сервер работает",
+        "",
+        get_uptime(),
+        get_ram(),
+        get_disk(),
+        f"⚙️ Load average: {load1:.2f}, {load5:.2f}, {load15:.2f}",
+    ])
+
+
+async def handle_status(bot):
+    await bot.send_message(OWNER_ID, get_status(), reply_markup=keyboard())
+
+
+@dp.message()
+async def handle_message(message: Message, bot: Bot):
+    if not message.from_user or message.from_user.id != OWNER_ID or message.chat.type != "private":
+        return
+    await handle_status(bot)
+
+
+@dp.callback_query()
+async def handle_button(callback: CallbackQuery, bot: Bot):
+    if callback.from_user.id != OWNER_ID or not callback.message or callback.message.chat.type != "private":
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    await handle_status(bot)
+
+
+async def main():
+    if not config.token or not OWNER_ID:
+        raise ValueError("Настройте TG_BOT_TOKEN и TG_ALLOWED_ID в .env")
+    with (config.data / "bot.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit("Бот уже запущен")
+        session = AiohttpSession(proxy=config.proxy, timeout=180)
+        async with Bot(token=config.token, session=session) as bot:
+            bridge = None
+            try:
+                if os.environ.get("MONITORING_WEBHOOKS_ENABLED", "0") == "1":
+                    bridge = MonitoringWebhooks(
+                        bot, OWNER_ID, config.data,
+                        Path(os.environ["MONITORING_GRAFANA_SECRET_FILE"]).read_text().strip(),
+                        Path(os.environ["MONITORING_KUMA_SECRET_FILE"]).read_text().strip(),
+                        host=os.environ.get("MONITORING_WEBHOOK_HOST", "127.0.0.1"),
+                        port=int(os.environ.get("MONITORING_WEBHOOK_PORT", "9088")),
+                    )
+                    await bridge.start()
+                try:
+                    async with asyncio.timeout(10):
+                        await bot.set_my_commands([BotCommand(command="status", description="Состояние сервера")])
+                except Exception:
+                    logging.warning("Не удалось обновить команды Telegram; продолжаем запуск")
+                await dp.start_polling(bot, close_bot_session=False)
+            finally:
+                if bridge is not None:
+                    await bridge.close()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())

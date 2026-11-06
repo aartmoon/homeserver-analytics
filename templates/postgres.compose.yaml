@@ -1,0 +1,24 @@
+services:
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    user: '1000:1000'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: '0.25'
+    environment:
+      DATA_SOURCE_URI: '${PG_HOST:?Set inspected database hostname}:5432/rukodelie?sslmode=disable&connect_timeout=5'
+      DATA_SOURCE_USER: monitoring_exporter
+      DATA_SOURCE_PASS_FILE: /run/secrets/postgres_password
+    volumes:
+      - ./secrets/postgres_password:/run/secrets/postgres_password:ro
+    networks: [monitoring, database]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+networks:
+  database:
+    external: true
+    name: '${PG_NETWORK:?Set inspected database network}'

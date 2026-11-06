@@ -1,0 +1,137 @@
+groups:
+- name: core
+  rules:
+  - alert: MetricsMissing
+    expr: up == 0
+    for: 3m
+    labels:
+      severity: critical
+    annotations:
+      summary: MetricsMissing
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: HttpUnavailable
+    expr: max_over_time(probe_success[3m]) == 0 and count_over_time(probe_success[3m])
+      >= 3
+    for: 0s
+    labels:
+      severity: critical
+    annotations:
+      summary: HttpUnavailable
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: DiskWarning
+    expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/dev.*"}
+      / node_filesystem_size_bytes < 0.15) and (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/dev.*"}
+      / node_filesystem_size_bytes >= 0.05)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: DiskWarning
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: DiskCritical
+    expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/dev.*"}
+      / node_filesystem_size_bytes < 0.05
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: DiskCritical
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: InodesLow
+    expr: node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_files
+      < 0.10
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: InodesLow
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: MemoryLow
+    expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: MemoryLow
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: CpuHigh
+    expr: 1 - avg by (project,service,environment,instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+      > 0.90
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: CpuHigh
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: TlsExpiring
+    expr: probe_ssl_earliest_cert_expiry - time() < 14*86400
+    for: 1h
+    labels:
+      severity: warning
+    annotations:
+      summary: TlsExpiring
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: BackupStatusUnknown
+    expr: absent(backup_last_success_timestamp_seconds{project="cottontoys"})
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: BackupStatusUnknown
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+  - alert: BackupExpired
+    expr: time() - backup_last_success_timestamp_seconds > 36*3600
+    for: 15m
+    labels:
+      severity: critical
+    annotations:
+      summary: BackupExpired
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+- name: optional-reference
+  rules:
+  - alert: PostgresDown
+    expr: pg_up == 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: PostgresDown
+  - alert: PostgresConnectionsHigh
+    expr: sum by (project,service,environment,instance) (pg_stat_database_numbackends)
+      / on (project,service,environment,instance) pg_settings_max_connections > 0.80
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: PostgresConnectionsHigh
+  - alert: ProxyRepeated5xx
+    expr: (sum by (project, service, environment, instance) (increase(traefik_service_requests_total{code=~"5.."}[15m]))
+      >= 5) and (sum by (project, service, environment, instance) (increase(traefik_service_requests_total{code=~"5.."}[15m]))
+      / sum by (project, service, environment, instance) (increase(traefik_service_requests_total[15m]))
+      > 0.05) and (sum by (project, service, environment, instance) (increase(traefik_service_requests_total[15m]))
+      >= 50)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: ProxyRepeated5xx
+  - alert: ProxyP95High
+    expr: (histogram_quantile(0.95, sum by (le,project,service,environment,instance)
+      (rate(traefik_service_request_duration_seconds_bucket[15m]))) > 2.5) and (sum
+      by (project, service, environment, instance) (increase(traefik_service_requests_total[15m]))
+      >= 100)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: ProxyP95High

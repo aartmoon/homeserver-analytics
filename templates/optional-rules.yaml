@@ -1,0 +1,39 @@
+groups:
+- name: optional-reference
+  rules:
+  - alert: PostgresDown
+    expr: pg_up == 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: PostgresDown
+  - alert: PostgresConnectionsHigh
+    expr: sum by (project,service,environment,instance) (pg_stat_database_numbackends)
+      / on (project,service,environment,instance) pg_settings_max_connections > 0.80
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: PostgresConnectionsHigh
+  - alert: ProxyRepeated5xx
+    expr: (sum by (project, service, environment, instance) (increase(traefik_service_requests_total{code=~"5.."}[15m]))
+      >= 5) and (sum by (project, service, environment, instance) (increase(traefik_service_requests_total{code=~"5.."}[15m]))
+      / sum by (project, service, environment, instance) (increase(traefik_service_requests_total[15m]))
+      > 0.05) and (sum by (project, service, environment, instance) (increase(traefik_service_requests_total[15m]))
+      >= 50)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: ProxyRepeated5xx
+  - alert: ProxyP95High
+    expr: (histogram_quantile(0.95, sum by (le,project,service,environment,instance)
+      (rate(traefik_service_request_duration_seconds_bucket[15m]))) > 2.5) and (sum
+      by (project, service, environment, instance) (increase(traefik_service_requests_total[15m]))
+      >= 100)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: ProxyP95High

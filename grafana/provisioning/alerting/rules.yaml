@@ -1,0 +1,373 @@
+apiVersion: 1
+groups:
+- orgId: 1
+  name: Monitoring
+  folder: Monitoring
+  interval: 30s
+  rules:
+  - uid: monitor-0
+    title: MetricsMissing
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (up == 0) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 3m
+    annotations:
+      summary: MetricsMissing
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: critical
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-1
+    title: HttpUnavailable
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (max_over_time(probe_success[3m]) == 0 and count_over_time(probe_success[3m])
+          >= 3) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    annotations:
+      summary: HttpUnavailable
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: critical
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-2
+    title: DiskWarning
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: ((node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/dev.*"}
+          / node_filesystem_size_bytes < 0.15) and (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/dev.*"}
+          / node_filesystem_size_bytes >= 0.05)) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: DiskWarning
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: warning
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-3
+    title: DiskCritical
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/dev.*"}
+          / node_filesystem_size_bytes < 0.05) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    annotations:
+      summary: DiskCritical
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: critical
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-4
+    title: InodesLow
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_files
+          < 0.10) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: InodesLow
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: warning
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-5
+    title: MemoryLow
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10)
+          * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    annotations:
+      summary: MemoryLow
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: warning
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-6
+    title: CpuHigh
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (1 - avg by (project,service,environment,instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+          > 0.90) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    annotations:
+      summary: CpuHigh
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: warning
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-7
+    title: TlsExpiring
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (probe_ssl_earliest_cert_expiry - time() < 14*86400) * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 1h
+    annotations:
+      summary: TlsExpiring
+      description: Project {{ $labels.project }}, service {{ $labels.service }}, instance
+        {{ $labels.instance }}
+    labels:
+      severity: warning
+      alert_owner: grafana
+    isPaused: false
+  - uid: monitor-8
+    title: BackupStatusUnknown
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (absent(backup_last_success_timestamp_seconds{project="cottontoys"}))
+          * 0 + 1
+        instant: true
+        range: false
+        intervalMs: 30000
+        maxDataPoints: 43200
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: math
+        expression: $A > 0
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    annotations:
+      summary: BackupStatusUnknown
+      description: 'cottontoys: no successful backup status has been supplied; backup
+        schedule is unconfirmed.'
+    labels:
+      severity: warning
+      alert_owner: grafana
+      project: cottontoys
+      service: backup
+      environment: production
+      instance: homeserver
+    isPaused: false
+deleteRules:
+- orgId: 1
+  uid: monitor-9

@@ -1,0 +1,59 @@
+modules:
+  https_200:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes:
+      - 200
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+      follow_redirects: true
+  shop_home:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes:
+      - 200
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+      follow_redirects: true
+      fail_if_body_not_matches_regexp:
+      - Ватные игрушки
+  shop_catalog:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes:
+      - 200
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+      follow_redirects: true
+      fail_if_body_not_matches_regexp:
+      - Каталог игрушек
+  image:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes:
+      - 200
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+      follow_redirects: true
+      fail_if_header_not_matches:
+      - header: Content-Type
+        regexp: ^image/
+        allow_missing: false
+  shop_ready:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes:
+      - 200
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      fail_if_body_not_matches_regexp:
+      - '"database"\s*:\s*"ok"'

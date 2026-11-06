@@ -1,0 +1,164 @@
+rule_files:
+- reference-rules.yml
+evaluation_interval: 30s
+tests:
+- interval: 1m
+  input_series:
+  - series: probe_success{project="test",service="http",environment="test",instance="test"}
+    values: 1 0 0 0 1 1
+  alert_rule_test:
+  - eval_time: 2m
+    alertname: HttpUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: HttpUnavailable
+    exp_alerts:
+    - exp_labels:
+        project: test
+        service: http
+        environment: test
+        instance: test
+        severity: critical
+      exp_annotations:
+        summary: HttpUnavailable
+        description: Project test, service http, instance test
+  - eval_time: 4m
+    alertname: HttpUnavailable
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: node_filesystem_size_bytes{project="infrastructure",service="node",environment="production",instance="homeserver",fstype="ext4",mountpoint="/",device="/dev/test"}
+    values: 100+0x30
+  - series: node_filesystem_avail_bytes{project="infrastructure",service="node",environment="production",instance="homeserver",fstype="ext4",mountpoint="/",device="/dev/test"}
+    values: 14+0x30
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: DiskWarning
+    exp_alerts:
+    - exp_labels:
+        project: infrastructure
+        service: node
+        environment: production
+        instance: homeserver
+        severity: warning
+        fstype: ext4
+        mountpoint: /
+        device: /dev/test
+      exp_annotations:
+        summary: DiskWarning
+        description: Project infrastructure, service node, instance homeserver
+- interval: 1m
+  input_series:
+  - series: node_filesystem_size_bytes{project="infrastructure",service="node",environment="production",instance="homeserver",fstype="ext4",mountpoint="/",device="/dev/test"}
+    values: 100+0x30
+  - series: node_filesystem_avail_bytes{project="infrastructure",service="node",environment="production",instance="homeserver",fstype="ext4",mountpoint="/",device="/dev/test"}
+    values: 4+0x30
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: DiskCritical
+    exp_alerts:
+    - exp_labels:
+        project: infrastructure
+        service: node
+        environment: production
+        instance: homeserver
+        severity: critical
+        fstype: ext4
+        mountpoint: /
+        device: /dev/test
+      exp_annotations:
+        summary: DiskCritical
+        description: Project infrastructure, service node, instance homeserver
+  - eval_time: 12m
+    alertname: DiskWarning
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: node_memory_MemAvailable_bytes{project="infrastructure",service="node",environment="production",instance="homeserver"}
+    values: 9+0x30
+  - series: node_memory_MemTotal_bytes{project="infrastructure",service="node",environment="production",instance="homeserver"}
+    values: 100+0x30
+  alert_rule_test:
+  - eval_time: 14m
+    alertname: MemoryLow
+    exp_alerts: []
+  - eval_time: 16m
+    alertname: MemoryLow
+    exp_alerts:
+    - exp_labels:
+        project: infrastructure
+        service: node
+        environment: production
+        instance: homeserver
+        severity: warning
+      exp_annotations:
+        summary: MemoryLow
+        description: Project infrastructure, service node, instance homeserver
+- interval: 1m
+  input_series:
+  - series: traefik_service_requests_total{project="cottontoys",service="shop",environment="production",instance="homeserver",code="200"}
+    values: 0+1x30
+  - series: traefik_service_requests_total{project="cottontoys",service="shop",environment="production",instance="homeserver",code="500"}
+    values: 0+1x30
+  alert_rule_test:
+  - eval_time: 25m
+    alertname: ProxyRepeated5xx
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: traefik_service_requests_total{project="cottontoys",service="shop",environment="production",instance="homeserver",code="200"}
+    values: 0+10x30
+  - series: traefik_service_requests_total{project="cottontoys",service="shop",environment="production",instance="homeserver",code="500"}
+    values: 0+1x30
+  alert_rule_test:
+  - eval_time: 25m
+    alertname: ProxyRepeated5xx
+    exp_alerts:
+    - exp_labels:
+        project: cottontoys
+        service: shop
+        environment: production
+        instance: homeserver
+        severity: warning
+      exp_annotations:
+        summary: ProxyRepeated5xx
+- interval: 1m
+  input_series:
+  - series: traefik_service_requests_total{project="cottontoys",service="shop",environment="production",instance="homeserver",code="200"}
+    values: 0+1x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="0.1"}
+    values: 0+0x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="2.5"}
+    values: 0+0x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="5"}
+    values: 0+1x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="+Inf"}
+    values: 0+1x30
+  alert_rule_test:
+  - eval_time: 25m
+    alertname: ProxyP95High
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: traefik_service_requests_total{project="cottontoys",service="shop",environment="production",instance="homeserver",code="200"}
+    values: 0+10x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="0.1"}
+    values: 0+0x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="2.5"}
+    values: 0+0x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="5"}
+    values: 0+10x30
+  - series: traefik_service_request_duration_seconds_bucket{project="cottontoys",service="shop",environment="production",instance="homeserver",le="+Inf"}
+    values: 0+10x30
+  alert_rule_test:
+  - eval_time: 25m
+    alertname: ProxyP95High
+    exp_alerts:
+    - exp_labels:
+        project: cottontoys
+        service: shop
+        environment: production
+        instance: homeserver
+        severity: warning
+      exp_annotations:
+        summary: ProxyP95High

@@ -1,0 +1,12 @@
+secrets/
+.env
+backups/
+*.sqlite*
+__pycache__/
+reports/runtime*
+data/
+textfile/*.prom
+textfile/*.tmp
+reports/traefik-*.json
+.venv/
+*.pyc

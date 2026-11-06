@@ -1,0 +1,86 @@
+[
+  {
+    "targets": [
+      "https://cottontoys.ru/"
+    ],
+    "labels": {
+      "project": "cottontoys",
+      "service": "homepage",
+      "environment": "production",
+      "instance": "homepage",
+      "module": "shop_home"
+    }
+  },
+  {
+    "targets": [
+      "https://cottontoys.ru/catalog"
+    ],
+    "labels": {
+      "project": "cottontoys",
+      "service": "catalog",
+      "environment": "production",
+      "instance": "catalog",
+      "module": "shop_catalog"
+    }
+  },
+  {
+    "targets": [
+      "https://cottontoys.ru/rukodelie-media/products/2026-08-01/60c7b406-5174-4a72-81f2-ba2057e3ae59.webp"
+    ],
+    "labels": {
+      "project": "cottontoys",
+      "service": "photo",
+      "environment": "production",
+      "instance": "photo",
+      "module": "image"
+    }
+  },
+  {
+    "targets": [
+      "https://rp-6.ru/"
+    ],
+    "labels": {
+      "project": "talk",
+      "service": "homepage",
+      "environment": "production",
+      "instance": "homepage",
+      "module": "https_200"
+    }
+  },
+  {
+    "targets": [
+      "https://rp-6.ru/healthz"
+    ],
+    "labels": {
+      "project": "talk",
+      "service": "liveness",
+      "environment": "production",
+      "instance": "liveness",
+      "module": "https_200"
+    }
+  },
+  {
+    "targets": [
+      "https://rp-6.ru/readyz"
+    ],
+    "labels": {
+      "project": "talk",
+      "service": "readiness",
+      "environment": "production",
+      "instance": "readiness",
+      "module": "https_200"
+    }
+  },
+  {
+    "targets": [
+      "https://cottontoys.ru/api/health"
+    ],
+    "labels": {
+      "project": "cottontoys",
+      "service": "readiness",
+      "environment": "production",
+      "instance": "readiness",
+      "module": "shop_ready"
+    }
+  }
+]
