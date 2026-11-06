@@ -46,6 +46,7 @@ func Run(ctx context.Context, c Config) error {
 		return err
 	}
 	defer tg.Close()
+	tg.Status = func() string { return StatusFrom(c.ProcFS, c.RootFS) }
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var workers sync.WaitGroup

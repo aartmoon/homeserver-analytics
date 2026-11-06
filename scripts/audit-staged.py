@@ -12,24 +12,21 @@ def git(*args):return subprocess.check_output(['git',*args],cwd=ROOT)
 paths=[p for p in git('diff','--cached','--name-only','--diff-filter=ACMR','-z').decode().split('\0') if p]
 values=[]
 secret_dir=ROOT/'secrets'
-if secret_dir.exists():
-    for file in secret_dir.iterdir():
-        if not file.is_file():continue
-        text=file.read_text().strip()
-        if len(text)>=16:values.append(text.encode())
-        for line in text.splitlines():
-            if '=' in line and len(line.split('=',1)[1])>=16:
-                values.append(line.split('=',1)[1].encode())
-env=ROOT.parent/'serverbot/.env'
-if env.exists():
-    for line in env.read_text().splitlines():
+def add_env(path):
+    if not path.exists():return
+    for line in path.read_text().splitlines():
         if '=' not in line or line.lstrip().startswith('#'):continue
         key,value=line.split('=',1);key=key.strip()
-        # A *_SECRET_FILE value is a documented filename, not a credential.
         if key.endswith('_FILE'):continue
         if re.search('TOKEN|PASSWORD|SECRET|ALLOWED_ID',key):
             value=' '.join(shlex.split(value,comments=True))
             if len(value)>=5:values.append(value.encode())
+if secret_dir.exists():
+    for file in secret_dir.iterdir():
+        if not file.is_file():continue
+        if file.suffix=='.env':add_env(file);continue
+        text=file.read_text().strip()
+        if len(text)>=16:values.append(text.encode())
 issues=[]
 for path in paths:
     if any(part in Path(path).parts for part in ['secrets','backups','data','.venv','__pycache__']):

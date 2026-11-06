@@ -1,47 +1,28 @@
-# Мониторинг homeserver
+# Homeserver monitoring — Docker Compose
 
-Стек запущен 6 ноября 2026. Шесть контейнеров работают; 13 targets Prometheus UP,
-семь HTTPS-проб успешны. Проверены provisioning пяти дашбордов, реальные запросы
-через Grafana datasource, тестовый Firing→Normal и сохранение данных после restart.
-Незавершённые части: ручная настройка Kuma, отдельная liveness и ограничение времени readiness магазина в исходниках,
-регулярные бэкапы проектов. Полный отчёт: [reports/RESULT.md](reports/RESULT.md).
+Все рабочие компоненты находятся в одном независимом ~/monitoring Compose project:
+9 контейнеров, включая Go Telegram-бота и Go-сборщик. Старые Python-бот/collector,
+.venv, exec-обёртки, host binaries, systemd units и legacy rollback-копии удалены.
+Очередь, секреты и метрики сохранены. Сайты/БД/MinIO не входят в этот Compose.
 
-## Архитектура и безопасность
+## Компоненты и доступ
 
-Независимый Compose project `monitoring` в ~/monitoring. Обновление/остановка
-ruk/talk не останавливает его; зависимость PostgreSQL может стать DOWN, но сам
-мониторинг продолжит работать. Второго Traefik, Loki, Tempo, Kubernetes нет.
-
-| Компонент | Назначение | Привязка |
+| Сервис | Назначение | Доступ |
 |---|---|---|
-| Grafana 13.3.0 | Пять дашбордов, вычисление алертов | 127.0.0.1:3001 |
-| Uptime Kuma 2.5.9 | UI и история HTTP-мониторов, требуют ручного добавления | 127.0.0.1:3002 |
-| Prometheus 3.16.0 | Сбор/TSDB | 127.0.0.1:9090 |
-| Node Exporter 1.12.1 | Ubuntu CPU/RAM/swap/FS/inode/network/IO + textfile | 127.0.0.1:9100 |
-| Blackbox Exporter 0.29.1 | Подготовленные HTTPS/text/TLS/image пробы Grafana | 127.0.0.1:9115 |
-| postgres_exporter 0.20.1 | Общий PostgreSQL | 127.0.0.1:9187 |
+| Grafana13.3.0 | 5 дашбордов, 17 правил | 127.0.0.1:3001 |
+| Kuma2.5.9 | UI HTTP-мониторов, ручная настройка | 127.0.0.1:3002 |
+| Prometheus3.16.0 | Метрики/история | 127.0.0.1:9090 |
+| Node Exporter1.12.1 | Ubuntu | 127.0.0.1:9100 |
+| Blackbox0.29.1 | HTTPS/text/image/TLS probes | 127.0.0.1:9115 |
+| postgres_exporter0.20.1 | Общая PostgreSQL | 127.0.0.1:9187 |
+| serverbot (Go) | Прежний Telegram account, polling+alerts | webhook127.0.0.1:9088 |
+| container-collector (Go) | Контейнеры/OOM/restarts, каждые60s | network none |
+| docker-read-proxy (Go) | Ограниченный read API для collector | только Unix socket |
 
-Образы официальных проектов, закреплены tags И digest. Версии проверены по
-GitHub releases и реально загружены. Blackbox нужен для автоматических
-HTTP/TLS-метрик Grafana, пока Kuma настраивается вручную поддерживаемым UI.
-Внутреннюю БД Kuma не редактируем.
-
-Prometheus, Grafana и Node Exporter используют host network с ЯВНЫМИ loopback
-listen-address. Так доступны настоящие сетевые счётчики Ubuntu, без изменения
-существующего firewall, который блокировал Docker bridge→host. Kuma/Blackbox
-остаются в monitoring_private. PostgreSQL exporter подключён только к этой сети
-и существующей ruk_backend; его порт опубликован исключительно на loopback.
-Prometheus/Grafana не добавлялись в сети проектов. monitoring_private помечена
-external для сохранения после `compose down`; уже создана. При переносе на новую
-ВМ сначала `docker network create monitoring_private`.
-
-Node Exporter читает /proc, /sys и / хоста read-only и использует host PID;
-это чувствительное чтение, ограниченное exporter. Привилегии всех контейнеров:
-cap_drop ALL, no-new-privileges; privileged отсутствует. Docker socket/API в
-контейнеры не монтируется. Read-only socket не считался бы защитой API.
-Новые секреты в secrets/ (каталог700, файлы600), исключены из git.
-
-## Доступ
+Официальные образы и builder/runtime в Dockerfile закреплены digest. Три Go
+сервиса собираются из этого repository через multi-stage Dockerfile; runtime
+Distroless без shell/Python/Go toolchain. CGO SQLite собран в Go builder Debian12,
+совместим с runtime base-debian12. Зависимости закреплены go.mod/go.sum.
 
 С компьютера в домашней сети:
 
@@ -49,354 +30,227 @@ cap_drop ALL, no-new-privileges; privileged отсутствует. Docker socke
 ssh -N -L 3001:127.0.0.1:3001 -L 3002:127.0.0.1:3002 -L 9090:127.0.0.1:9090 sysadmin@192.168.1.105
 ```
 
-При доступе извне заменить IP существующим SSH-адресом ВМ. Не открывать порты
-мониторинга на роутере. Интерфейсы: Grafana http://localhost:3001,
-Kuma http://localhost:3002, Prometheus http://localhost:9090.
-Grafana login `admin`; пароль читать локально в доверенном терминале:
-`less ~/monitoring/secrets/grafana_admin_password`. Не публиковать его в чатах/логах.
-Grafana работает uid1000; bind data/grafana700 и пароль600 доступны ей без
-расширения прав. В Kuma ещё нужно создать первого администратора через туннель.
+Снаружи использовать существующий SSH-адрес ВМ. Интерфейсы localhost:3001,
+localhost:3002, localhost:9090. Grafana login admin, первоначальный пароль
+читать локально: `less ~/monitoring/secrets/grafana_admin_password`.
+Не публиковать значения файлов secrets/ и Docker inspect Env.
+В Kuma сначала создать администратора через туннель; мониторы ещё нужно добавить.
 
-Проверены ss, Docker bindings и недоступность 3001/3002/9090/9100/9115/9187,
-8082/9088/5432/2375/2376 по LAN-IP ВМ из отдельного контейнера. Это проверка из
-другого network namespace, НЕ проверка из внешнего интернета или другого
-физического устройства. Firewall и правила SSH не изменялись. На ВМ уже был
-существующий listener19999 на внешних интерфейсах; он не создан этим стеком
-и в рамках этой задачи не изменялся.
-
-## Какие данные собираются
-
-Основные метрики раз в30s; HTTP каждые60s. labels project/service/environment/
-instance стабильны: cottontoys, talk, infrastructure. instance HTTP — имя пробы,
-а не URL; у контейнеров — стабильное Compose-имя без Docker ID. URL изображения
-с UUID передаётся как target, но не сохраняется в metric labels. Не добавлять
-labels с email/заказами/произвольными URL. Общие PostgreSQL/Traefik относятся
-к infrastructure; БД общая для rukodelie и talk.
-
-| project | service | URL и условие |
-|---|---|---|
-| cottontoys | homepage | https://cottontoys.ru/ — 200, «Ватные игрушки» |
-| cottontoys | catalog | https://cottontoys.ru/catalog — 200, «Каталог игрушек» |
-| cottontoys | readiness | https://cottontoys.ru/api/health — 200, JSON database=ok |
-| cottontoys | photo | Реальная фотография ниже — 200, Content-Type image/* |
-| talk | homepage | https://rp-6.ru/ — 200 |
-| talk | liveness | https://rp-6.ru/healthz — 200 |
-| talk | readiness | https://rp-6.ru/readyz — 200 |
-
-Фотография из ссылки Image существующей карточки
-/catalog/ozon-4512-033581b097:
-https://cottontoys.ru/rukodelie-media/products/2026-08-01/60c7b406-5174-4a72-81f2-ba2057e3ae59.webp
-Её реальная загрузка с ВМ проверена: HTTP200, image/webp. Не удалять объект при
-архивировании товара либо заранее заменить контрольный URL.
-Все семь проб: TLS verification включена, HTTPS обязателен, статус строго200,
-GET, timeout10s (readiness5s). Проверка срока сертификата собирается Blackbox.
-
-Для магазина прочитан собранный health handler из образа БЕЗ его изменения:
-`SELECT 1`, 200 с database=ok; при ошибке503 с database=unavailable без exception.
-Сейчас endpoint работоспособен. Явного server-side timeout в handler нет,
-отдельная liveness не найдена. Исходного репозитория на ВМ нет. В исходниках
-нужно добавить liveness без зависимостей, readiness с общим budget2s, DB query
-≤1s с корректной отменой/освобождением соединения, no-store, без stacktrace/DSN.
-Проверить успешную/недоступную/медленную БД и отсутствие вызова БД в liveness.
-Эти новые endpoints и тесты НЕ созданы внутри контейнера. Текущую БД ради
-проверки отказа не останавливали; failure path проверен чтением кода, не сбоем БД.
-Talk host/health routes найдены в существующем Compose и проверены HTTP-запросами.
-
-PostgreSQL exporter: pg_up=1, max_connections=100, подключения по БД,
-commit/rollback counters и стандартные статистики exporter. Отдельная роль
-monitoring_exporter: CONNECT rukodelie, pg_monitor, connection limit3,
-statement_timeout5s, default_transaction_read_only. Нет superuser/CREATEDB/
-CREATEROLE/replication; SELECT на таблицы public не выдан (проверено).
-Пароль приложения не использован. Подробнее templates/postgres.md.
-
-Контейнеры: 15 длительно работающих Compose containers; up, working-set RAM,
-CPU cores (среднее между сборами Docker stats), накопленные автоматические рестарты,
-OOM events. Сборщик bin/container-collector (Go) работает НА ХОСТЕ от sysadmin
-по user systemd timer каждую минуту, сохраняет состояние атомарно в
- data/container-collector (700), textfile читает Node Exporter. Он не логирует
-полный inspect/env и не передаёт Docker API контейнерам. Включён linger sysadmin
-для работы user timer без SSH-сессии. Временные setup/minio-init/promtool
-контейнеры исключаются по restart policy.
-
-Restart счётчик накапливает приращения Docker RestartCount с учётом смены
-container ID; ручная перезагрузка приложения сама по себе не объявляется OOM.
-OOM события дедуплицируются по timeNano/ID. Docker хранит ограниченный буфер
-событий; при долгой остановке collector/daemon или >256 Docker events за паузу
-часть исторических OOM может потеряться. Это не аудит с гарантией без потерь;
-свежесть collector контролируется отдельным алертом. После намеренного удаления
-сервиса удалить его запись из state только после защищённой копии и обслуживания,
-иначе container_up=0 справедливо укажет на отсутствие ранее известного сервиса.
-
-## Дашборды
-
-Папка Monitoring: Домашний сервер; Обзор проектов; Отдельный проект с выбором
-project; PostgreSQL; Состояние мониторинга. Есть реальные CPU/RAM/swap/FS/inode,
-сеть wlp4s0, disk IO, HTTP status/длительность/TLS, PostgreSQL, targets и
-контейнеры. Реальные запросы через Grafana datasource проверены API.
-Панели requests/5xx/p95 используют включённые метрики существующего Traefik.
-При недостаточном числе запросов p95 намеренно No data. Backup timestamp No data,
-пока реальная работающая задача не передаёт статус. Не трактовать это как ноль.
-
-## Kuma — ручной шаг остаётся
-
-В UI создать первого администратора, затем семь мониторов из таблицы.
-Type HTTP(s) Keyword: главная, каталог, readiness магазина. Keywords:
-«Ватные игрушки», «Каталог игрушек», `"database":"ok"` соответственно;
-при изменении JSON whitespace использовать подходящий JSON Query monitor.
-Остальные HTTP(s); для фотографии проверить именно полный публичный URL.
-Accepted status200, interval60s, retries2 (первый сбой +2 повтора =3 ошибки),
-retry interval60s, timeout10s, HTTPS verification включена.
-Добавить tags project/service/environment/instance. Notifications отключены.
-Для главной включить срок сертификата, warning14дней. Восстановление видно
-в истории после успешной пробы. Kuma retention установить30дней.
-
-Внутренний API управления Kuma не является поддерживаемым сторонним API;
-он не использован, внутренняя БД не редактировалась. До ручного добавления
-Kuma не показывает историю сайтов; provisioned Blackbox/Grafana уже проверяют их.
-
-## Алерты и обслуживание
-
-Grafana вычисляет 17 правил. Prometheus reference rules служат promtool тестам,
-не создают второй активный источник тех же алертов. Telegram-доставка включена через существующий serverbot и localhost webhook.
-Receiver serverbot, recovery включено; SMTP off. Вычисление и история состояний
-продолжаются. delivery-disabled — доступный mute timing, сейчас ни к одному
-маршруту не применён. Кумa notifications выключены для предотвращения дублей.
-Группировка по grafana_folder/alertname/project, group_wait30s, interval5m,
-repeat4h. Проверена фактическая notification policy через API.
-
-| Условие | Задержка | Уровень |
-|---|---|---|
-| Потеря scrape (up=0) | 3m | critical |
-| Три неуспешные минутные HTTP-пробы | до третьей ошибки; max/count over3m | critical |
-| Диск <15%, но ≥5% | 10m | warning |
-| Диск <5% | 5m | critical |
-| Свободных inode <10% | 10m | warning |
-| MemAvailable <10% | 15m | warning |
-| CPU busy >90% | 15m | warning |
-| TLS осталось <14дней | 1h | warning |
-| Нет отметки успешного backup cottontoys | 15m | warning |
-| pg_up=0 | 2m | critical |
-| Подключения >80% max_connections | 10m | warning |
-| container_up=0 | 3m | critical |
-| ≥3 автоматических рестарта /15m | 2m | warning |
-| Новый OOM /15m | без дополнительного pending | critical |
-| Collector не обновлялся >180s | 2m | critical |
-
-Recovery HTTP — следующая успешная проба; остальные — выход из условия.
-NoDataState=OK у порогов; отсутствие сбора отдельно обнаруживают up и свежесть
-collector, ошибка datasource — Grafana Error. Низкий трафик учтён в активных
-Traefik-правилах: ≥5 ошибок5xx/15m, >5%, ≥50 запросов, for5m; p95>2.5s при
-≥100 запросах/15m, for10m. Это запросы reverse proxy, а не latency внутри app.
-При малом трафике основная проверка — синтетическая доступность.
-
-На обслуживание: Pause мониторов/maintenance schedule Kuma; для Grafana —
-Pause evaluation (у provisioned rules через isPaused и reload) либо silences/
-mute timings, если нужно только подавить будущую доставку. По окончании вернуть.
-HTTP/TLS/backup уведомляет Grafana; Kuma оставлена локальной для тех же проверок,
-чтобы не дублировать сообщения. Для экстренного отключения доставки применить
-delivery-disabled к catch-all child route, затем reload provisioning.
-
-## Traefik: подключён после согласования перезапуска
-
-По явному разрешению пользователя пересоздан ТОЛЬКО ruk-traefik-1.
-В ~/ruk/docker-compose.yml добавлены шесть metrics flags и loopback binding
-127.0.0.1:8082:8082. Прочие команды/порты80/443 сохранены, конфигурации до
-изменения и точный runtime rollback сохранены в backups/traefik-UTC (700/600).
-Это сохранено в основном Compose, поэтому обычный deploy не выключит метрики.
-Traefik healthy, магазин и Talk после изменения ответили200.
-
-Job traefik UP; реально собраны traefik_service_requests_total и duration buckets.
-Service labels shop/media → cottontoys, talk-api/talk-web/talk-media → talk;
-общие метрики → infrastructure. Это запросы reverse proxy, не внутренних
-обработчиков. Панели 5xx возвращают0 только на основе существующего request
-counter, если ошибок нет; p95 скрыт при <100 запросов/15m.
-Правила 5xx/p95 включены; promtool тестирует low-traffic guard и срабатывание
-при достаточной выборке. templates/ruk.traefik.override.yaml — справочный
-эквивалент уже применённых дополнений, повторно подключать его не требуется.
-Дальнейшее изменение static config также требует отдельного окна.
-
-## Бэкапы проектов
-
-У sysadmin crontab отсутствует. В доступных cron и systemd timers не найдены
-задания резервирования ruk/MinIO; dpkg-db-backup — системный, не backup сайта.
-Root crontab полностью не проверен из-за отсутствия sudo без пароля.
-Миграционные архивы в ruk не подтверждают расписание/успех/внешнюю копию.
-Регулярное резервное копирование магазина НЕ настроено этой работой.
-
-scripts/backup-success.py — только передача статуса. Реальная задача вызывает
-`~/monitoring/scripts/backup-success.py cottontoys database` СТРОГО после успешных
-dump/upload/verification. Для MinIO отдельный backup_job. Скрипт не выполнялся
-для создания зелёной отметки: backup_last_success_timestamp_seconds сейчас нет.
-Он пишет через fsync+atomic replace; ошибка задачи не должна вызывать скрипт.
-
-После появления реального статуса удалить deleteRules monitor-9 из активного
-rules.yaml и включить templates/grafana-backup-expired.yaml: >36h, for15m,
-critical. 36h рассчитано на ежедневный backup; согласовать с фактическим графиком.
-Добавить проверку полноты ожидаемых jobs database/media, когда определено
-расписание. Сейчас активен только BackupStatusUnknown, честно показывающий
-отсутствие подтверждения, а не фиктивную давность последнего успеха.
-
-## Запуск, остановка, проверки
+## Запуск и эксплуатация
 
 ```bash
 cd ~/monitoring
+# Новый clone: создаёт только отсутствующие private файлы/каталоги.
+python3 scripts/init-local.py
+# На новом хосте заполнить secrets/serverbot.env прежним token/owner,
+# создать PG monitoring role и согласовать её пароль; существующие секреты не менять.
+docker network inspect monitoring_private >/dev/null 2>&1 || docker network create monitoring_private
 docker compose config -q
-./scripts/check-config.sh
+docker compose build serverbot container-collector docker-read-proxy
 docker compose up -d
+./scripts/check-config.sh
 ./scripts/verify-runtime.py
-docker compose ps
-# Только мониторинг:
-docker compose stop
-docker compose start
 ```
 
-scripts/check-config.sh проверяет Prometheus config/rules и promtool unit tests
-HTTP recovery, порогов диска и длительного дефицита RAM. Скрипт runtime проверяет
-UP targets, реальные метрики, пять dashboards и запросы через Grafana datasource.
-После запуска ждать полный интервал HTTP60s: unknown сразу после старта ожидаем.
+В secrets/serverbot.env600 находятся прежние TG_BOT_TOKEN/TG_ALLOWED_ID/TG_PROXY,
+MONITORING_*; это не новый бот. Шаблон integrations/serverbot/.env.example не
+содержит настоящих значений. Go container env переопределяет secret paths на
+/run/secrets/...; Bot token напрямую в Grafana не передаётся.
+Root .env600 содержит только локальный DOCKER_SOCKET_GID, установленный init script
+по /var/run/docker.sock. В текущей ВМ уже всё заполнено и запущено.
 
-Безопасный тест: scripts/test-alert-runtime.py — отдельный project=test gauge,
-временное правило Grafana, pending30s, Firing→Normal, затем удаление только
-тестовых объектов. Проверен дважды, последний после финальной смены networking.
-Никакого production outage и отправки Telegram. test-persistence.py перезапускает
-ТОЛЬКО monitoring, проверяет сохранение исторической TSDB-выборки, временного
-НЕ provisioned дашборда и файла тома Kuma, затем удаляет тестовые объекты.
-Сохранение настроек вручную созданных Kuma-мониторов пока не проверялось:
-их ещё нет. Тома существующих проектов не удалялись/не пересоздавались.
+Управление только мониторингом:
+`docker compose ps`, `docker compose stop`, `docker compose start`,
+`docker compose restart serverbot`, `docker compose logs --tail100 serverbot`.
+Не публиковать логи без проверки. Restart unless-stopped, json logs10MB×3.
+Перед config changes — защищённая копия dirs700/files600. Для update сохранить
+backup, сменить проверенные версии/digests, build/config tests, up и runtime tests.
+Rollback — предыдущий Git revision И совместимый data backup: миграции Grafana/
+Kuma могут не поддерживать downgrade. Не использовать down -v и не трогать тома
+ruk/talk. Старые Python установки для отката больше не хранятся.
 
-Go tests: `go test -race ./...`, статическая проверка `go vet ./...`.
-Legacy compatibility tests: `~/serverbot/.venv/bin/python -m unittest discover -s ~/monitoring/tests -v`.
-13 legacy Python тестов прошли, включая реальные HTTP413/401/400/202 на локальном aiohttp
-TestServer, дедупликацию, bounded/durable queue и OOM/restart collector.
-Новых health handlers нет, поэтому их source-level тестов на ВМ нет.
+## Безопасность контейнеров
 
-User timer: `systemctl --user status monitoring-container-collector.timer`;
-ручной сбор: `systemctl --user start monitoring-container-collector.service`.
-Остановка всего мониторинга при длительном обслуживании также требует остановки
-этого user timer; обычный Compose stop не выключает хостовой сборщик.
+Три новых сервиса: UID1000, cap_drop ALL, no-new-privileges, read-only rootfs,
+ограниченные CPU/RAM/PIDs, private data mounts. Bot host network необходим для
+существующего SOCKS5 localhost1080 и Grafana localhost9088; публикуемых ports нет.
+Только три файла /proc/uptime,meminfo,loadavg смонтированы read-only для host status.
+Пустой data/host-filesystem bind даёт statfs того же диска без доступа ко всему /.
+Старого root systemd serverbot.service и user timer больше нет.
 
-## Хранение и ресурсы
+Collector не имеет raw Docker socket и Docker group. Он видит только restricted
+Unix socket из data/docker-proxy, network none. Proxy один имеет raw host socket
+и supplemental Docker GID, также network none. Read-only socket mount НЕ является
+защитой API; защиту для collector обеспечивает Go handler proxy:
+- только GET /version, scoped container list/inspect/stats, bounded OOM events;
+- только проекты ruk/talk/monitoring, принудительные query filters;
+- ответы projected: без Env, Command, binds, secret labels, лишних event attrs;
+- create/exec/archive/logs/images/прочие endpoints и любые mutations запрещены.
+Proxy — доверенная компонента: компрометация процесса с raw socket всё ещё опасна.
+Сокет защищён700-каталогом/660-inode, TCP port отсутствует. Не отдавать его другим
+проектам. Тесты проверяют запрет writes/endpoints и redaction.
 
-TSDB: 15дней ИЛИ5GB (первое достигнутое ограничение); WAL/compaction требуют
-дополнительного места. Это не общая квота всех томов. Docker json logs10MB×3
-на контейнер, restart unless-stopped. RAM limits: Prometheus768MiB,
-Grafana/Kuma по512MiB, node/blackbox по256MiB, postgres_exporter128MiB —
-всего2432MiB лимитов. CPU limits0.25–1 ядра на контейнер.
+Prometheus/Grafana/Node используют host network с явными127.0.0.1 bindings;
+существующий firewall мешал bridge→host, его правила не менялись. Exporters
+публикуются толькоloopback. PostgreSQL exporter соединён со своей сетью и только
+существующей ruk_backend. Сети всех проектов не объединялись.
+Node Exporter имеет read-only host root/proc/sys и host PID для метрик;
+остальные новые Go сервисы не получают весь root или Docker API.
 
-Реальные три коротких замера: 421.6–427.8MiB RAM суммарно, 0.39–1.00% CPU
-(100%=одно ядро). Это раннее наблюдение, не длительный нагрузочный профиль.
-Collector oneshot: пик около30MiB, CPU154ms при одном запуске в минуту.
-На ранней проверке data: Prometheus≈968KiB, Kuma≈16KiB, Grafana≈545MiB
-(из них≈543MiB установленные plugins). Images и локальные backup-архивы отдельно.
-Исходно на диске было≈198GB свободно; контролировать дальнейший рост.
-Подробные samples в reports/runtime-resources.json. Проверять docker stats и
-`docker system df` периодически; не выполнять prune для очистки без анализа.
+## Реальные сайты и метрики
 
-## Бэкап мониторинга, обновление и откат
+13 targets Prometheus UP. HTTP interval60s; timeout10s (магазин readiness5s),
+проверка TLS включена, HTTPS обязателен, GET/status200. Семь probes:
 
-scripts/backup-monitoring.sh проверен: остановил только monitoring, скопировал
-TSDB/Kuma/Grafana и config/secrets/collector state, снова запустил стек, создал
-архив600 и проверил tar listing. Архив в backups/, каталог700. Он содержит
-секреты: хранить зашифрованную копию вне ВМ. Автоматическое расписание и
-offsite upload не включены. Полное восстановление архива ещё не тестировалось.
+| project/service | URL / проверка |
+|---|---|
+| cottontoys/homepage | https://cottontoys.ru/ — «Ватные игрушки» |
+| cottontoys/catalog | https://cottontoys.ru/catalog — «Каталог игрушек» |
+| cottontoys/readiness | https://cottontoys.ru/api/health — database=ok |
+| cottontoys/photo | Реальная image/webp ниже |
+| talk/homepage | https://rp-6.ru/ |
+| talk/liveness | https://rp-6.ru/healthz |
+| talk/readiness | https://rp-6.ru/readyz |
 
-Архив: prometheus/, kuma/, grafana/ — данные; config/ — Compose/provisioning/
-secrets/scripts/templates/integrations/README и collector-state. Восстанавливать
-при остановленном monitoring, предварительно сохранив текущее состояние.
-Распаковать в отдельный каталог700. Для TSDB/Kuma создавать НОВЫЕ тома,
-копировать туда данные временным контейнером, владельцы65534:65534 (Prometheus),
-1000:1000 (Kuma). Через Compose volume override подключить восстановленные тома;
-старые не удалять. Grafana вернуть в data/grafana uid1000; collector-state в
- data/container-collector с файлами600. Восстановить secrets600, nonsecret
-provisioning files644/dirs755. После checks/start проверить историю и все targets.
-Не копировать поверх работающей SQLite/TSDB и не использовать `down -v`.
+https://cottontoys.ru/rukodelie-media/products/2026-08-01/60c7b406-5174-4a72-81f2-ba2057e3ae59.webp
+найдена в существующей карточке товара, реально загружена200 image/webp.
+Сохранить контрольный объект либо заранее заменить URL. URL/UUID не попадают
+в metric labels: HTTP instance — стабильное имя проверки.
 
-Перед изменением config: защищённая копия в backups/config-UTC (dirs700,
-files600); такие копии создавались перед изменениями текущей сессии.
-Перед upgrade — согласованный backup данных, сохранить прежние tags/digests,
-изучить миграции, заменить на проверенные версии, config/promtool checks,
-`docker compose pull && docker compose up -d`, runtime checks.
-Rollback — старые config И совместимые данные: миграция Kuma/Grafana может
-не поддерживать простой возврат старого образа к новой БД. Production-тома
-ruk/talk не трогать. Git remote: git@github.com:aartmoon/homeserver-analytics.git.
-В Git только source/config/docs/tests, без secrets/.env/data/backups.
+Labels project/service/environment/instance: cottontoys, talk, infrastructure,
+production и стабильные service/container names. Без email/order IDs/URL labels.
+Общая PostgreSQL/Traefik относятся к infrastructure. Proxy HTTP service labels
+shop/media→cottontoys, talk-api/talk-web/talk-media→talk. Считаются запросы reverse
+proxy, не внутренние app spans; duration buckets0.1/0.3/1/2.5/5s.
+Существующий ~/ruk/docker-compose.yml содержит metrics flags и127.0.0.1:8082.
+Traefik был пересоздан с отдельным разрешением ранее; в этой контейнеризации
+production не перезапускался. Diff сохранён reports/ruk-compose.patch.
 
-После Go-переноса backup script также включает Go cmd/internal/go.mod/go.sum,
-user units и serverbot/ с бинарником, launcher, .env и online SQLite snapshot
-очереди. Архив содержит Telegram token, нужен тот же режим600 и offsite encryption.
-Перед восстановлением inbox остановить единственную службу бота; не копировать
-SQLite поверх работающего Go. Новый snapshot-фрагмент проверен отдельно через
-integrity_check; полный archive restore по-прежнему не заявляется проверенным.
-На новом хосте бинарники можно пересобрать scripts/build-go.sh из включённых
-исходников (Go≥1.24+gcc), не создавать второй polling process.
+Магазин /api/health реально делает SELECT1, при ошибке503 с общим сообщением.
+Собранный код прочитан без изменения; исходников на ВМ нет. Отдельную liveness
+без БД и server-side deadline/cancellation readiness (budget2s, query≤1s) ещё
+нужно добавить в исходном репозитории и покрыть тестами dependency failure/timeout.
+БД production ради теста не останавливали. Сейчас существующая readiness подключена.
 
-## Новый сайт и Telegram
+Ubuntu: CPU/RAM/swap/FS/inode/network/disk IO. PG: pg_up, connections по DB,
+max_connections100, commits/rollbacks и стандартные exporter stats. Роль
+monitoring_exporter: CONNECT rukodelie+pg_monitor, connection limit3, statement
+ timeout5s, default read-only; без superuser/CREATEDB/CREATEROLE/replication/SELECT
+на public tables. Пароль отдельный в secrets/postgres_password600. На новом хосте
+создать роль администратором, пароль назначать интерактивно, не CLI аргументом.
 
-Добавить реальные HTTPS targets по templates/project.json в
-prometheus/targets/http.json; file_sd перечитает автоматически. Для текста
-добавить blackbox module и перезапустить только blackbox. Проверить probe_success,
-status/labels, затем добавить Kuma monitor вручную. Endpoint сначала найти в
-исходниках/конфигурации, не угадывать. Общие ресурсы оставлять infrastructure.
+Collector: 18 долгоживущих Compose containers, up, working-set RAM, CPU cores
+(среднее между успешными samples), automatic restart totals, OOM events.
+Смена ID не сбрасывает totals; первая CPU baseline0. Docker events имеют буфер256,
+proxy читает не более24h истории: после долгого простоя возможна потеря исторических
+OOM. Это не lossless аудит. Freshness контролируется. State700/600, textfile644
+через fsync+atomic replace. Удалённый намеренно сервис остаётся up0: после окна
+обслуживания убрать именно его запись из state, не обнулять все counters.
 
-Telegram-бот перенесён на Go (cmd/serverbot и internal/serverbot). Сохранены
-один polling, прежний token/owner/proxy, bot.lock и owner-only/private handlers.
-Существующий ~/serverbot/bot.py теперь немедленно exec-заменяется Go binary;
-постоянного Python процесса нет, корневая systemd-служба сохранена. Webhook только
-127.0.0.1:9088, доступен Grafana в host network, firewall не менялся. Кумa не
-уведомляет для тех же проблем. Детали и инструкции отключения:
-[integrations/serverbot/README.md](integrations/serverbot/README.md).
+## Дашборды и алерты
 
-В Git находятся Go source, go.mod/go.sum, exec launcher, Go tests и env examples
-без токенов. Старый Python source сохранён в integrations/serverbot/legacy/
-для совместимости/отката. Сборка: scripts/build-go.sh (Go≥1.24 + gcc). В ~/serverbot/.env включён флаг,
-но этот настоящий файл и секреты в Git не попадают. Подтверждена реальная цепочка
-Grafana→webhook→старый Bot→Telegram: тестовая проблема и восстановление,
-а также настоящее BackupStatusUnknown. Доставлено Telegram, прочтение человеком
-не проверяется. scripts/test-telegram-runtime.py отправляет реальные сообщения
-только при явном запуске; обычный test-alert-runtime.py временно глушит test project.
+Папка Monitoring: Host, Projects, Project selector, PostgreSQL, Monitoring itself.
+Проверены реальные queries через Grafana datasource. p95 скрыт при низком числе
+запросов, backup timestamp пока No data — это отсутствие статуса, не успешный ноль.
 
-После нового clone сначала `python3 scripts/init-local.py`: создаёт только
-отсутствующие локальные секреты и каталоги, не печатает значения и не меняет
-existing пароли. Затем отдельно применить PG роль/пароль и интеграцию бота по
-инструкции; скрипт не развёртывает БД/бота. Для обновления текущей ВМ сохранять
-существующие secrets/data/backups/serverbot inbox и не запускать второй polling.
-Хостовые user systemd units сохранены в deploy/systemd/user/.
+Grafana17 rules, health=ok. Prometheus reference rules только для promtool tests.
 
-## Экономия после Go-переноса
+| Условие | Pending / уровень |
+|---|---|
+| up=0 | 3m critical |
+| 3 последовательные ошибки HTTP60s | на третьей, critical; recovery на успехе |
+| Диск <15%, но≥5% | 10m warning |
+| Диск <5% | 5m critical |
+| inode free<10% | 10m warning |
+| MemAvailable<10% | 15m warning |
+| CPU busy>90% | 15m warning |
+| TLS осталось<14дней | 1h warning |
+| Нет статуса успешного backup cottontoys | 15m warning |
+| pg_up=0 | 2m critical |
+| PG connections>80% limit | 10m warning |
+| container_up=0 | 3m critical |
+| ≥3 automatic restarts/15m | 2m warning |
+| Новый OOM/15m | critical |
+| Collector stale>180s | 2m critical |
+| ≥5 HTTP5xx/15m, >5%, ≥50 requests | 5m warning |
+| HTTPp95>2.5s, ≥100 requests/15m | 10m warning |
 
-13 Go tests с race detector и go vet прошли. Реальный collector API trial,
-экспорт метрик через promtool и 13/13 UP проверены. Go-бот повторно прошёл
-реальный Grafana→webhook→Telegram test problem/recovery с прежним inbox.
+Grouping folder/alertname/project, wait30s, interval5m, repeat4h; recovery включено.
+Bot dedup suppresses identical firing7days, включая повторные reminders, новый
+incident/recovery — новый ключ. NoData OK у threshold rules, lost collection
+проверяется отдельно; datasource error — Error. Уведомляет только Grafana,
+Kuma notifications остаются off. Maintenance: Kuma pause/schedule; Grafana pause
+provisioned rule через isPaused+reload или silence/mute. Для общего mute применить
+существующий delivery-disabled к catch-all child route serverbot. Сейчас mute off.
 
-| Измерение | Python | Go |
-|---|---:|---:|
-| Bot process RSS | 178.86MiB | 15.48MiB |
-| Bot service memory.current | 164.64MiB | 6.24–6.25MiB |
-| Collector oneshot peak | 30.91MiB | около5.53MiB |
-| Collector CPU/запуск | 136.53ms | около18.51ms |
+## Telegram
 
-RSS бота снизился на91.3%. Это три короткие пробы после настоящей отправки,
-не длительный stress test; RSS и cgroup memory считаются по-разному, сравнивать
-нужно одинаковые строки. Grafana/Kuma/Prometheus/exporters сохранены и продолжают
-потреблять свои ресурсы. Go soft memory limits: bot64MiB, collector32MiB;
-это не жёсткий RSS лимит. Bin-файлы не коммитятся, исходники и зависимости в Git.
-Подробности, сборка, особенности exec launcher и откат:
-reports/GO-MIGRATION.md и integrations/serverbot/README.md.
+Один прежний account/polling, owner-only private messages/callbacks, прежняя кнопка
+статуса. SQLite data/serverbot/monitoring-inbox.sqlite3 сохранена с прежними ID.
+Новый Go процесс и версия в Docker прошли реальную отправку test problem/recovery.
+Webhook /grafana и reserved /kuma имеют разные Bearer secrets. Приём JSON64KiB,
+read5s, до100 alerts/request; 401/400/413/415/503, queue1000 pending/10000 rows.
+202 после WAL/FULL commit. Send timeout30s, retry до1h с учётом Telegram retry_after,
+shutdown сохраняет pending. Редкий дубль после crash send→commit возможен:
+at-least-once, не exactly-once. Подробнее integrations/serverbot/README.md.
 
-## Ограничения
+## Kuma и новый сайт
 
-При отключении ВМ/электричества/домашнего интернета мониторинг тоже исчезнет.
-Проверка домена с домашней ВМ не заменяет внешний probe: DNS/hairpin NAT/путь
-провайдера могут отличаться. Независимая внешняя проверка здесь не создавалась.
-Состояние BackupUnknown и отсутствие истории Kuma — известные незавершённые части,
-не скрытые успешными значениями. Дополнительные проекты в домашнем каталоге
-с работающими Compose-приложениями кроме ruk/talk/serverbot не обнаружены.
+Kuma healthy, но ещё нужно создать администратора и вручную добавить семь probes
+из таблицы. HTTP(s) Keyword для текста главной/каталога, JSON query для readiness
+либо keyword `"database":"ok"`. Status200, interval60s, retries2, retry60s,
+timeout10s, TLS verification, certificate warning14days. Notifications OFF,
+retention30days; tags project/service/environment/instance. БД Kuma не правилась:
+поддерживаемого стороннего API provisioning monitors нет.
 
-Документация: https://prometheus.io/docs/guides/node-exporter/ ;
-https://prometheus.io/docs/guides/multi-target-exporter/ ;
-https://github.com/prometheus/blackbox_exporter/blob/master/CONFIGURATION.md ;
-https://grafana.com/docs/grafana/latest/administration/provisioning/ ;
-https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/ ;
-https://doc.traefik.io/traefik/reference/install-configuration/observability/metrics/ ;
-https://github.com/prometheus-community/postgres_exporter ;
-https://github.com/louislam/uptime-kuma/wiki/Internal-API .
+Новый сайт: реальный URL по templates/project.json добавить в file_sd
+prometheus/targets/http.json; file_sd перечитается. Для текста создать blackbox
+module и перезапустить только blackbox. Проверить probe_success/labels и добавить
+Kuma monitor вручную. Health URL сначала найти, не угадывать. Для контейнеров
+нового Compose project расширить whitelist collector И docker proxy и tests.
+
+## Бэкапы
+
+Регулярные backups магазина/MinIO не подтверждены: user crontab отсутствует,
+доступные timers не показали project backups; root crontab полностью не проверен.
+Миграционные архивы не подтверждают расписание/успех/offsite. BackupStatusUnknown
+сообщает именно это. Не публиковать фиктивный success timestamp.
+scripts/backup-success.py вызывать ТОЛЬКО после успешного dump/upload/verification:
+`./scripts/backup-success.py cottontoys database` (media отдельный backup_job).
+После появления реального статуса убрать deleteRules monitor-9 из active rules,
+включить templates/grafana-backup-expired.yaml: >36h for15m critical для daily job.
+Согласовать график и expected jobs database/media; success script сам не бэкапит.
+
+Backup текущего мониторинга: scripts/backup-monitoring.sh останавливает только
+все9 monitoring containers, делает согласованные копии Prometheus/Kuma/Grafana/
+serverbot/collector state, config/source/secrets, затем запускает их обратно.
+Архив600/backups700 содержит Telegram token/пароли: offsite только зашифрованно.
+Старые legacy rollback-копии удалены по запросу; новые backups содержат текущую
+Docker-версию. Расписание/offsite не включались. Проверка tar listing не заменяет
+полный restore test, который ещё не выполнен.
+
+Restore: остановить monitoring, сохранить текущее состояние, распаковать в700-dir.
+TSDB/Kuma восстанавливать в новые тома с владельцами65534 и1000, переключить через
+volume override; старые тома не удалять. Bind data/grafana, data/serverbot,
+data/container-collector вернуть UID1000. Secret files600; nonsecret provisioning
+644/dirs755. data/docker-proxy/socket не бэкапить, создаётся заново; empty
+host-filesystem dir создать init script. Пересобрать Go images, config/start,
+проверить историю/очередь/targets. Не копировать поверх работающей SQLite/TSDB.
+
+## Проверки и ограничения
+
+`go test -race ./...`, `go vet ./...`; scripts/check-config.sh запускает promtool
+config/rules/unit tests HTTP recovery, disk/RAM и low-traffic 5xx/p95 guards.
+verify-runtime.py проверяет targets/samples/dashboard objects и реальные queries.
+test-alert-runtime.py временно глушит project=test, production не останавливает.
+test-telegram-runtime.py явно отправляет реальные test problem/recovery, затем
+удаляет временные rule/gauge/fast route. Не запускать его в CI.
+
+Порты loopback подтверждены ss/bindings и недоступностью LAN-IP из другого
+Docker namespace. Проверка с отдельного физического устройства/интернета остаётся
+отдельной задачей. При отключении ВМ/электричества/домашнего интернета мониторинг
+и доставка тоже исчезнут. Домен с этой ВМ не заменяет внешний probe (DNS/hairpin/
+путь провайдера могут отличаться). Внешний независимый монитор здесь не создан.
+
+Текущий отчёт и перечень удаления: reports/CONTAINERS.md. Бинарники/секреты/.env/
+data/тома/backups не коммитятся; Go source, pinned Dockerfile, config/tests/docs в Git.

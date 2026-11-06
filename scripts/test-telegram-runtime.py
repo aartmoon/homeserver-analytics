@@ -17,7 +17,7 @@ AUTH='Basic '+base64.b64encode(('admin:'+(ROOT/'secrets/grafana_admin_password')
 CONFIG=ROOT/'grafana/provisioning/alerting/runtime-telegram-test.yaml'
 METRIC=ROOT/'textfile/runtime-telegram-test.prom'
 POLICY=ROOT/'grafana/provisioning/alerting/notifications.yaml'
-INBOX=ROOT.parent/'serverbot/data/monitoring-inbox.sqlite3'
+INBOX=ROOT/'data/serverbot/monitoring-inbox.sqlite3'
 OBS=[]
 
 def call(path,method='GET'):

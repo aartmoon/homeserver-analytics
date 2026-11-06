@@ -11,10 +11,10 @@ import (
 )
 
 type Config struct {
-	Token, Proxy, Root, Data, Host, GrafanaSecret, KumaSecret string
-	Owner                                                     int64
-	Port                                                      int
-	Enabled                                                   bool
+	Token, Proxy, Root, Data, Host, GrafanaSecret, KumaSecret, ProcFS, RootFS string
+	Owner                                                                     int64
+	Port                                                                      int
+	Enabled                                                                   bool
 }
 
 // EnvironmentFile never runs shell code; the service environment takes precedence.
@@ -69,6 +69,14 @@ func LoadConfig(root string) (Config, error) {
 	c := Config{Root: root, Data: filepath.Join(root, "data"), Port: 9088, Host: "127.0.0.1"}
 	if err := EnvironmentFile(filepath.Join(root, ".env")); err != nil {
 		return c, errors.New("cannot read bot configuration")
+	}
+	c.ProcFS = os.Getenv("SERVERBOT_PROCFS")
+	if c.ProcFS == "" {
+		c.ProcFS = "/proc"
+	}
+	c.RootFS = os.Getenv("SERVERBOT_ROOTFS")
+	if c.RootFS == "" {
+		c.RootFS = "/"
 	}
 	c.Token = os.Getenv("TG_BOT_TOKEN")
 	c.Owner, _ = strconv.ParseInt(os.Getenv("TG_ALLOWED_ID"), 10, 64)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/aartmoon/homeserver-analytics/internal/collector"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"syscall"
@@ -16,7 +17,16 @@ func main() {
 	exe, _ := os.Executable()
 	root := flag.String("root", filepath.Dir(filepath.Dir(exe)), "monitoring project directory")
 	socket := flag.String("socket", "/var/run/docker.sock", "local Docker Unix socket")
+	interval := flag.Duration("interval", 0, "repeat interval, zero for one-shot")
+	health := flag.Bool("health-check", false, "check most recent successful collection")
 	flag.Parse()
+	if *health {
+		info, err := os.Stat(filepath.Join(*root, "textfile/containers.prom"))
+		if err != nil || time.Since(info.ModTime()) > 180*time.Second {
+			os.Exit(1)
+		}
+		return
+	}
 	debug.SetMemoryLimit(32 << 20)
 	state := filepath.Join(*root, "data/container-collector")
 	if err := os.MkdirAll(state, 0700); err != nil {
@@ -31,10 +41,27 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Collector is already running")
 		os.Exit(1)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
-	if collector.Collect(ctx, collector.NewAPI(*socket), *root) != nil {
-		fail()
+	parent, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	api := collector.NewAPI(*socket)
+	for {
+		ctx, cancel := context.WithTimeout(parent, 40*time.Second)
+		err := collector.Collect(ctx, api, *root)
+		cancel()
+		if err != nil {
+			if *interval == 0 {
+				fail()
+			}
+			fmt.Fprintln(os.Stderr, "Collection failed; retaining last successful metrics")
+		}
+		if *interval == 0 {
+			return
+		}
+		select {
+		case <-parent.Done():
+			return
+		case <-time.After(*interval):
+		}
 	}
 }
 func fail() {

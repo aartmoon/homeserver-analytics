@@ -128,6 +128,16 @@ func Normalize(source string, body []byte) ([]Event, error) {
 }
 func Webhook(q *Queue, grafanaSecret, kumaSecret string) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		if q.db.PingContext(ctx) != nil {
+			http.Error(w, "Inbox unavailable", 503)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
 	for source, secret := range map[string]string{"grafana": grafanaSecret, "kuma": kumaSecret} {
 		mux.HandleFunc("/"+source, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {

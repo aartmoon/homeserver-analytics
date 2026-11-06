@@ -1,7 +1,0 @@
-[Unit]
-Description=Monitoring Docker metadata to Prometheus textfile
-[Service]
-Type=oneshot
-ExecStart=/home/sysadmin/monitoring/bin/container-collector --root /home/sysadmin/monitoring
-UMask=0077
-NoNewPrivileges=true

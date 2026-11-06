@@ -16,6 +16,7 @@ type APIError struct{ Code, RetryAfter int }
 func (e *APIError) Error() string { return "Telegram API rejected request" }
 
 type Telegram struct {
+	Status  func() string
 	Client  *http.Client
 	BaseURL string
 }
@@ -150,7 +151,7 @@ func (t *Telegram) Poll(ctx context.Context, q *Queue, owner int64) {
 		backoff = time.Second
 		for _, u := range updates {
 			actionCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			err = t.Handle(actionCtx, u, owner, Status)
+			err = t.Handle(actionCtx, u, owner, statusFunc(t.Status))
 			cancel()
 			if err != nil {
 				wait(ctx, backoff)
@@ -173,3 +174,10 @@ func (t *Telegram) Close() {
 }
 
 // No SDK or HTTP error is logged: URLs include the bot token.
+
+func statusFunc(f func() string) func() string {
+	if f == nil {
+		return Status
+	}
+	return f
+}

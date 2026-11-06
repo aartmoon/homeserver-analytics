@@ -134,6 +134,128 @@ services:
         max-file: '3'
     ports:
     - 127.0.0.1:9187:9187
+  serverbot:
+    restart: unless-stopped
+    user: 1000:1000
+    read_only: true
+    cap_drop: &id005
+    - ALL
+    security_opt: &id006
+    - no-new-privileges:true
+    logging: &id007
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    cpus: '0.25'
+    mem_limit: 64m
+    pids_limit: 64
+    stop_grace_period: 15s
+    build:
+      context: .
+      target: serverbot
+    image: homeserver-analytics-serverbot:2026.11.06
+    command:
+    - --root
+    - /var/lib/serverbot
+    network_mode: host
+    env_file:
+    - ./secrets/serverbot.env
+    environment:
+      MONITORING_GRAFANA_SECRET_FILE: /run/secrets/grafana_webhook
+      MONITORING_KUMA_SECRET_FILE: /run/secrets/kuma_webhook
+      SERVERBOT_PROCFS: /host/proc
+      SERVERBOT_ROOTFS: /host/filesystem
+    volumes:
+    - ./data/serverbot:/var/lib/serverbot/data
+    - ./secrets/grafana_webhook:/run/secrets/grafana_webhook:ro
+    - ./secrets/kuma_webhook:/run/secrets/kuma_webhook:ro
+    - /proc/uptime:/host/proc/uptime:ro
+    - /proc/meminfo:/host/proc/meminfo:ro
+    - /proc/loadavg:/host/proc/loadavg:ro
+    - ./data/host-filesystem:/host/filesystem:ro
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=8m,mode=1777
+    healthcheck:
+      test:
+      - CMD
+      - /app/serverbot
+      - --health-check
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+  docker-read-proxy:
+    restart: unless-stopped
+    user: 1000:1000
+    read_only: true
+    cap_drop: *id005
+    security_opt: *id006
+    logging: *id007
+    cpus: '0.25'
+    mem_limit: 64m
+    pids_limit: 64
+    stop_grace_period: 15s
+    build:
+      context: .
+      target: docker-proxy
+    image: homeserver-analytics-docker-proxy:2026.11.06
+    network_mode: none
+    group_add:
+    - ${DOCKER_SOCKET_GID:?Run scripts/init-local.py}
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ./data/docker-proxy:/run/docker-proxy
+    healthcheck:
+      test:
+      - CMD
+      - /app/docker-read-proxy
+      - --health-check
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+  container-collector:
+    restart: unless-stopped
+    user: 1000:1000
+    read_only: true
+    cap_drop: *id005
+    security_opt: *id006
+    logging: *id007
+    cpus: '0.25'
+    mem_limit: 64m
+    pids_limit: 64
+    stop_grace_period: 15s
+    build:
+      context: .
+      target: collector
+    image: homeserver-analytics-collector:2026.11.06
+    network_mode: none
+    command:
+    - --root
+    - /monitoring
+    - --socket
+    - /run/docker-proxy/docker.sock
+    - --interval
+    - 60s
+    volumes:
+    - ./data/docker-proxy:/run/docker-proxy:ro
+    - ./data/container-collector:/monitoring/data/container-collector
+    - ./textfile:/monitoring/textfile
+    depends_on:
+      docker-read-proxy:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - /app/container-collector
+      - --root
+      - /monitoring
+      - --health-check
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 networks:
   monitoring:
     name: monitoring_private

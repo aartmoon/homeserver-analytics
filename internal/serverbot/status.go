@@ -3,19 +3,21 @@ package serverbot
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 )
 
-func Status() string {
-	uptime, _ := os.ReadFile("/proc/uptime")
+func Status() string { return StatusFrom("/proc", "/") }
+func StatusFrom(procfs, rootfs string) string {
+	uptime, _ := os.ReadFile(filepath.Join(procfs, "uptime"))
 	fields := strings.Fields(string(uptime))
 	seconds := float64(0)
 	if len(fields) > 0 {
 		seconds, _ = strconv.ParseFloat(fields[0], 64)
 	}
-	mem, _ := os.ReadFile("/proc/meminfo")
+	mem, _ := os.ReadFile(filepath.Join(procfs, "meminfo"))
 	values := map[string]float64{}
 	for _, line := range strings.Split(string(mem), "\n") {
 		parts := strings.Fields(line)
@@ -30,7 +32,7 @@ func Status() string {
 		ramPct = used / total * 100
 	}
 	var disk syscall.Statfs_t
-	_ = syscall.Statfs("/", &disk)
+	_ = syscall.Statfs(rootfs, &disk)
 	diskTotal := float64(disk.Blocks) * float64(disk.Bsize)
 	diskFree := float64(disk.Bfree) * float64(disk.Bsize)
 	diskUsed := diskTotal - diskFree
@@ -38,7 +40,7 @@ func Status() string {
 	if diskTotal > 0 {
 		diskPct = diskUsed / diskTotal * 100
 	}
-	load, _ := os.ReadFile("/proc/loadavg")
+	load, _ := os.ReadFile(filepath.Join(procfs, "loadavg"))
 	loads := strings.Fields(string(load))
 	for len(loads) < 3 {
 		loads = append(loads, "0.00")

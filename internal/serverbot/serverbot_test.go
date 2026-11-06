@@ -320,3 +320,16 @@ func TestConfigurationPrecedenceAndPrivateBinding(t *testing.T) {
 		t.Fatal("public wildcard webhook binding accepted")
 	}
 }
+
+func TestContainerStatusUsesMountedHostFiles(t *testing.T) {
+	proc := t.TempDir()
+	os.WriteFile(filepath.Join(proc, "uptime"), []byte("90000 0\n"), 0600)
+	os.WriteFile(filepath.Join(proc, "meminfo"), []byte("MemTotal: 16777216 kB\nMemAvailable: 8388608 kB\n"), 0600)
+	os.WriteFile(filepath.Join(proc, "loadavg"), []byte("1.01 2.02 3.03 1/100 12\n"), 0600)
+	text := StatusFrom(proc, t.TempDir())
+	for _, part := range []string{"1д 1ч 0м", "8.00 / 16.00 GiB", "1.01, 2.02, 3.03"} {
+		if !strings.Contains(text, part) {
+			t.Fatal("host metrics not selected")
+		}
+	}
+}
