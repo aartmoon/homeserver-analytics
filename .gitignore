@@ -10,3 +10,5 @@ textfile/*.tmp
 reports/traefik-*.json
 .venv/
 *.pyc
+bin/
+*.test

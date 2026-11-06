@@ -110,8 +110,8 @@ CREATEROLE/replication; SELECT на таблицы public не выдан (пр�
 Пароль приложения не использован. Подробнее templates/postgres.md.
 
 Контейнеры: 15 длительно работающих Compose containers; up, working-set RAM,
-CPU cores (моментальный docker stats), накопленные автоматические рестарты,
-OOM events. Сборщик scripts/container-collector.py работает НА ХОСТЕ от sysadmin
+CPU cores (среднее между сборами Docker stats), накопленные автоматические рестарты,
+OOM events. Сборщик bin/container-collector (Go) работает НА ХОСТЕ от sysadmin
 по user systemd timer каждую минуту, сохраняет состояние атомарно в
  data/container-collector (700), textfile читает Node Exporter. Он не логирует
 полный inspect/env и не передаёт Docker API контейнерам. Включён linger sysadmin
@@ -264,8 +264,9 @@ UP targets, реальные метрики, пять dashboards и запрос
 Сохранение настроек вручную созданных Kuma-мониторов пока не проверялось:
 их ещё нет. Тома существующих проектов не удалялись/не пересоздавались.
 
-Mock tests: `~/serverbot/.venv/bin/python -m unittest discover -s ~/monitoring/tests -v`.
-13 тестов прошли, включая реальные HTTP413/401/400/202 на локальном aiohttp
+Go tests: `go test -race ./...`, статическая проверка `go vet ./...`.
+Legacy compatibility tests: `~/serverbot/.venv/bin/python -m unittest discover -s ~/monitoring/tests -v`.
+13 legacy Python тестов прошли, включая реальные HTTP413/401/400/202 на локальном aiohttp
 TestServer, дедупликацию, bounded/durable queue и OOM/restart collector.
 Новых health handlers нет, поэтому их source-level тестов на ВМ нет.
 
@@ -320,6 +321,15 @@ Rollback — старые config И совместимые данные: миг�
 ruk/talk не трогать. Git remote: git@github.com:aartmoon/homeserver-analytics.git.
 В Git только source/config/docs/tests, без secrets/.env/data/backups.
 
+После Go-переноса backup script также включает Go cmd/internal/go.mod/go.sum,
+user units и serverbot/ с бинарником, launcher, .env и online SQLite snapshot
+очереди. Архив содержит Telegram token, нужен тот же режим600 и offsite encryption.
+Перед восстановлением inbox остановить единственную службу бота; не копировать
+SQLite поверх работающего Go. Новый snapshot-фрагмент проверен отдельно через
+integrity_check; полный archive restore по-прежнему не заявляется проверенным.
+На новом хосте бинарники можно пересобрать scripts/build-go.sh из включённых
+исходников (Go≥1.24+gcc), не создавать второй polling process.
+
 ## Новый сайт и Telegram
 
 Добавить реальные HTTPS targets по templates/project.json в
@@ -328,14 +338,17 @@ prometheus/targets/http.json; file_sd перечитает автоматиче�
 status/labels, затем добавить Kuma monitor вручную. Endpoint сначала найти в
 исходниках/конфигурации, не угадывать. Общие ресурсы оставлять infrastructure.
 
-Telegram включён через существующий ~/serverbot/bot.py; сохранены один polling,
-Config/session/proxy, bot.lock, owner-only/private handlers. Webhook только
+Telegram-бот перенесён на Go (cmd/serverbot и internal/serverbot). Сохранены
+один polling, прежний token/owner/proxy, bot.lock и owner-only/private handlers.
+Существующий ~/serverbot/bot.py теперь немедленно exec-заменяется Go binary;
+постоянного Python процесса нет, корневая systemd-служба сохранена. Webhook только
 127.0.0.1:9088, доступен Grafana в host network, firewall не менялся. Кумa не
 уведомляет для тех же проблем. Детали и инструкции отключения:
 [integrations/serverbot/README.md](integrations/serverbot/README.md).
 
-В Git находятся full source и точный patch изменения bot.py, новый webhook
-module, mock tests и примеры env без токенов. В ~/serverbot/.env включён флаг,
+В Git находятся Go source, go.mod/go.sum, exec launcher, Go tests и env examples
+без токенов. Старый Python source сохранён в integrations/serverbot/legacy/
+для совместимости/отката. Сборка: scripts/build-go.sh (Go≥1.24 + gcc). В ~/serverbot/.env включён флаг,
 но этот настоящий файл и секреты в Git не попадают. Подтверждена реальная цепочка
 Grafana→webhook→старый Bot→Telegram: тестовая проблема и восстановление,
 а также настоящее BackupStatusUnknown. Доставлено Telegram, прочтение человеком
@@ -348,6 +361,27 @@ existing пароли. Затем отдельно применить PG рол�
 инструкции; скрипт не развёртывает БД/бота. Для обновления текущей ВМ сохранять
 существующие secrets/data/backups/serverbot inbox и не запускать второй polling.
 Хостовые user systemd units сохранены в deploy/systemd/user/.
+
+## Экономия после Go-переноса
+
+13 Go tests с race detector и go vet прошли. Реальный collector API trial,
+экспорт метрик через promtool и 13/13 UP проверены. Go-бот повторно прошёл
+реальный Grafana→webhook→Telegram test problem/recovery с прежним inbox.
+
+| Измерение | Python | Go |
+|---|---:|---:|
+| Bot process RSS | 178.86MiB | 15.48MiB |
+| Bot service memory.current | 164.64MiB | 6.24–6.25MiB |
+| Collector oneshot peak | 30.91MiB | около5.53MiB |
+| Collector CPU/запуск | 136.53ms | около18.51ms |
+
+RSS бота снизился на91.3%. Это три короткие пробы после настоящей отправки,
+не длительный stress test; RSS и cgroup memory считаются по-разному, сравнивать
+нужно одинаковые строки. Grafana/Kuma/Prometheus/exporters сохранены и продолжают
+потреблять свои ресурсы. Go soft memory limits: bot64MiB, collector32MiB;
+это не жёсткий RSS лимит. Bin-файлы не коммитятся, исходники и зависимости в Git.
+Подробности, сборка, особенности exec launcher и откат:
+reports/GO-MIGRATION.md и integrations/serverbot/README.md.
 
 ## Ограничения
 

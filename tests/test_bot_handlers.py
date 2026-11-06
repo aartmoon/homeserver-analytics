@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock,patch
 
-ROOT=Path(__file__).parents[1]/'integrations/serverbot'
+ROOT=Path(__file__).parents[1]/'integrations/serverbot/legacy'
 sys.path.insert(0,str(ROOT))
 
 class HandlersTest(unittest.IsolatedAsyncioTestCase):

@@ -1,118 +1,132 @@
-# Алерты через существующий serverbot — включено
+# Serverbot и сборщик переведены на Go
 
-На этой ВМ работает один прежний serverbot.service. Его bot.py изменён, рядом
-добавлен monitoring_webhooks.py; существующие Config, proxy, Bot, owner,
-fcntl lock, команды и handlers сохранены. Ровно один start_polling.
-Код bot.py/config.py/requirements.txt в этом каталоге — версия для развёртывания,
-не второй автоматически запускаемый бот. bot.py.patch показывает точные изменения
-к исходному bot.py. Токен/owner/.env/data в Git отсутствуют.
+Активный код: cmd/serverbot, internal/serverbot, cmd/container-collector,
+internal/collector. Prometheus/Grafana/Kuma/exporters сохранены. Старый Python
+код находится в legacy/ для отката и compatibility tests; он не исполняется
+в работающем боте. Подробный результат: reports/GO-MIGRATION.md.
 
-## Текущая связь
+## Что работает сейчас
 
-Grafana работает в host network. Webhook бота слушает только127.0.0.1:9088;
-URL http://127.0.0.1:9088/grafana. Bearer secret читается из локального файла.
-Порт не опубликован в Docker/Traefik и не слушает LAN. Firewall не менялся.
-Kuma уведомления выключены, чтобы не повторять те же HTTP/TLS alerts.
-Маршрут /kuma реализован и имеет отдельный секрет, но Kuma в bridge network
-сейчас не может обратиться к host loopback. Не включать его вслепую.
-Если понадобятся отдельные Kuma-only проверки: либо согласовать private bridge
-bind+INPUT firewall, либо отдельно спроектировать локальную связь. Не публиковать
-webhook в интернет. Текущая Grafana-доставка не требует Docker bridge→host доступа.
+Существующий serverbot.service запускает тот же Telegram-бот с прежними
+TG_BOT_TOKEN/TG_ALLOWED_ID/TG_PROXY, data и bot.lock. Один polling getUpdates,
+кнопка «📊 Состояние сервера», ответы на сообщения владельца в private chat,
+owner-only callback handlers. Русский текст метрик сохранён. Один HTTP client/
+transport разделяют polling, ответы и alert delivery; существующий SOCKS5 proxy
+поддерживается стандартным net/http. Raw HTTP/SDK errors с token URL не логируются.
 
-## Локальные переменные
+Webhook только127.0.0.1:9088, /grafana и /kuma с разными Bearer secrets.
+Grafana уже в host network, отправляет на http://127.0.0.1:9088/grafana.
+Kuma notifications выключены для предотвращения дублей; bridge-контейнер Kuma
+не имеет доступа к host loopback. Публичного webhook/Traefik router нет,
+firewall не менялся. Для будущих Kuma-only alerts отдельно согласовать приватную
+связь, не открывать webhook в интернет.
 
-В ~/serverbot/.env (600), реальные значения не публикуются:
+## Почему systemctl ExecStart по-прежнему показывает Python
 
-```dotenv
-MONITORING_WEBHOOKS_ENABLED=1
-MONITORING_WEBHOOK_HOST=127.0.0.1
-MONITORING_WEBHOOK_PORT=9088
-MONITORING_GRAFANA_SECRET_FILE=/home/sysadmin/monitoring/secrets/grafana_webhook
-MONITORING_KUMA_SECRET_FILE=/home/sysadmin/monitoring/secrets/kuma_webhook
+Корневая служба управляется администратором; sudo без пароля недоступен.
+В ~/serverbot/bot.py установлена короткая exec-go.py: она немедленно делает
+os.execv ~/serverbot/serverbot-go. PID сохраняется, Python интерпретатор полностью
+заменяется Go executable. Постоянного Python-процесса/второго polling нет.
+Проверка: /proc/$(systemctl show serverbot -p MainPID --value)/exe.
+.venv сохранена для совместимости запуска службы и старых тестов/отката.
+Не удалять её, пока администратор не сменит ExecStart.
+
+Для прямого запуска без обёртки подготовлен deploy/systemd/serverbot-go.service.example.
+Применять к той же serverbot.service с daemon-reload, НЕ создавать вторую службу.
+Это необязательный административный шаг: экономия RAM уже получена через exec.
+
+## Сборка и обновление
+
+Нужны Go≥1.24 и gcc (SQLite встроен в CGO driver, отдельный sqlite dev package
+не нужен). Сборка проверена Go1.26.8 на Ubuntu amd64. Версия go-sqlite3 закреплена
+в go.mod/go.sum: v1.14.53. Telegram SDK не добавлялся.
+
+```bash
+cd ~/monitoring
+go test -race ./...
+go vet ./...
+./scripts/build-go.sh
+./bin/serverbot-go --root ~/serverbot --check-config
 ```
 
-Существующие TG_BOT_TOKEN, TG_ALLOWED_ID, TG_PROXY сохранены.
-Шаблон .env.example безопасно отключает feature для нового развёртывания.
-Новые разные секреты созданы локально, файлы600/каталог700. Grafana получает
-только webhook secret через secrets/grafana-webhook.env (600), env_file Compose.
-В tracked provisioning используется `$SERVERBOT_GRAFANA_WEBHOOK_SECRET`, а не
-значение секрета; Grafana шифрует credential в своей БД.
+Если системный HTTP_PROXY мешает скачиванию Go modules, выполнить сборку в
+обычном окружении с работающей сетью; на этой ВМ для первичного скачивания
+использовалось HTTP_PROXY= HTTPS_PROXY= ALL_PROXY=. Не менять proxy бота.
 
-## Повторное применение на этом/другом хосте
+Перед установкой сохранить bot.py, .env и consistent SQLite backup в каталоге700,
+файлы600. Установить bin/serverbot-go как ~/serverbot/serverbot-go через временный
+файл+rename, права755; exec-go.py как ~/serverbot/bot.py. Если bot.py отличается
+от известной legacy-версии, сначала объединить собственные handlers, не заменять
+их вслепую. Здесь исходный обработчик перенесён полностью и проверен mock API.
+Go-launcher.patch показывает точное изменение Python entrypoint.
 
-Сначала защищённый backup старых bot.py/config.py/.env/data. Не перезаписывать
-существующие команды/handlers чужой версии: проверить bot.py.patch через
-`patch -p1 --dry-run` в каталоге serverbot. Затем применить патч и скопировать
-monitoring_webhooks.py рядом с bot.py. Полный bot.py здесь — эталон именно этой
-версии. Config и requirements не менялись; aiogram3/aiohttp уже установлены.
-Добавить только MONITORING_* env, проверить py_compile и mock tests.
+Перезапустить только существующий bot service. На этой ВМ: SIGTERM прежнему
+MainPID пользователя sysadmin; уже существующая Restart=always-служба запускает
+новую версию через5s. Не выполнять второй `python bot.py`/Go polling параллельно.
+После обновления проверить exe, один MainPID, loopback listener и Telegram test.
 
-Перезапустить существующий serverbot.service. Здесь sudo без пароля недоступен:
-был отправлен SIGTERM именно прежнему MainPID пользователя sysadmin, и его
-уже существующая Restart=always-служба сама запустила новую версию через5s.
-Вручную второй `python bot.py` параллельно не запускать. После restart проверить
-один MainPID, lock и listener127.0.0.1:9088. AiohttpSession и Config.proxy остаются
-прежними. Webhook стартует до set_my_commands; обновление команд ограничено10s,
-так что ошибка Telegram при старте не блокирует очередь навсегда.
-`close_bot_session=False` у polling сохраняет общую session до bridge.close();
-внешний async with Bot закрывает её последней.
+Для collector установить bin/container-collector в ~/monitoring/bin/;
+user unit из deploy/systemd/user/ вызывает Go каждые60s. Он обращается к Docker
+по локальному Unix socket, только GET /version,/containers/json,/json,/stats,/events,
+без subprocess docker/Python и без socket mounts в контейнеры. Состояние и metric
+names прежние. CPU теперь среднее число занятых ядер между двумя успешными
+сборами, первая выборка без baseline0; memory — usage минус inactive file cache.
+При смене container ID CPU baseline сбрасывается, restart/OOM totals сохраняются.
 
-## Grafana
+## Env и секреты
 
-Provisioning: serverbot.yaml и notifications.yaml. Receiver serverbot,
-POST http://127.0.0.1:9088/grafana, Authorization Bearer, стандартный JSON,
-recovery включено. Group by grafana_folder/alertname/project; wait30s,
-interval5m, repeat4h. Постоянный mute снят; delivery-disabled остаётся только
-неиспользуемым mute timing для экстренного отключения.
+Настоящий ~/serverbot/.env600 сохранён, в Git только .env.example.
+MONITORING_WEBHOOKS_ENABLED=1, MONITORING_WEBHOOK_HOST=127.0.0.1,
+MONITORING_WEBHOOK_PORT=9088. Файлы MONITORING_GRAFANA_SECRET_FILE и
+MONITORING_KUMA_SECRET_FILE указывают на secrets/grafana_webhook и kuma_webhook.
+Секреты минимум32 символа, разные, mode600; прежние значения не менялись.
+Service environment имеет приоритет над .env, значения из файла не исполняются.
+TG_PROXY отсутствует→socks5://127.0.0.1:1080, явное пустое значение→без proxy.
 
-Экстренно выключить все отправки, сохранив вычисление: в policy добавить
-catch-all child route receiver=serverbot с mute_time_intervals=[delivery-disabled],
-reload provisioning (или применить silence в UI). Для полного отключения
-listener выставить MONITORING_WEBHOOKS_ENABLED=0 и перезапустить только бота;
-сначала приглушить receiver, иначе Grafana будет повторять недоставленный webhook.
-Не удалять SQLite inbox. Для включения вернуть флаг и снять mute.
-Не тестировать contact point кнопкой без project: такой TestAlert будет400.
-Использовать scripts/test-telegram-runtime.py с корректными labels.
+Grafana env_file secrets/grafana-webhook.env600; tracked serverbot.yaml использует
+$SERVERBOT_GRAFANA_WEBHOOK_SECRET. Notifications policy receiver serverbot,
+recovery включено, group30s/5m/repeat4h. delivery-disabled — запасной mute timing,
+сейчас не применяется. Для экстренного mute добавить catch-all child route
+receiver serverbot с mute_time_intervals=[delivery-disabled], reload provisioning.
+Отключать listener через env flag только после mute sender.
 
-## Доставка и ограничения
+## Очередь и совместимость
 
-Принимаются только JSON POST с правильным секретом. Ограничение64KiB,
-чтение тела5s, до100 alerts/request. Неверный secret401, JSON400, media type415,
-слишком большой запрос413. Invalid arbitrary labels не попадают в сообщения.
-Grafana-generated DatasourceError/NoData без project относятся к infrastructure;
-для прочих alerts project обязателен. Сообщение: проблема/восстановление,
-проект, сервис, экземпляр, имя проверки и уровень. Только существующему owner;
-пользовательские команды по-прежнему owner-only/private-chat.
+Старый ~/serverbot/data/monitoring-inbox.sqlite3 используется на месте. events
+schema, тексты и SHA256 ключи совместимы с Python json.dumps(list), включая
+пробелы после запятых. SQLite WAL + synchronous FULL, file600, data700.
+Добавлена только таблица bot_state для durable Telegram update offset;
+старый Python её игнорирует. После миграции integrity_check=ok, старые deliveries
+сохранены; секреты/owner/.env не менялись.
 
-202 возвращается только после commit SQLite WAL/synchronous FULL в существующем
-~/serverbot/data/monitoring-inbox.sqlite3 (600, data700). До1000 pending,
-до10000 строк суммарно. Заполненная/недоступная БД→503 Retry-After60.
-Telegram недоступен: запись остаётся pending, timeout отправки30s, exponential
-retry до1h. Ошибки SDK/request body/secret не логируются. SQLite transient error
-не убивает worker, повтор через5s. При shutdown вход закрывается, worker получает
-до5s, незавершённое остаётся в БД. Второй Bot/session/polling не создаётся.
+202 только ПОСЛЕ commit. До1000 pending, до10000 строк. Secret401, media415,
+JSON400, >64KiB413, capacity/storage error503 Retry-After60. Чтение5s, header8KiB,
+DB timeout5s. Только private/loopback binding, wildcard/public IP отвергаются.
+Worker send timeout30s; ошибка оставляет pending с exponential retry до1h,
+Telegram retry_after учитывается, даже если больше базовой задержки.
+Shutdown закрывает HTTP, отменяет единственный polling/worker и закрывает SQLite.
+Незавершённая отправка остаётся pending. Новый poll offset фиксируется после
+обработки update; unauthorized messages не вызывают отправку метрик.
 
-Дедупликация7дней: Grafana fingerprint+status+startsAt (+endsAt для recovery);
-Kuma project/service/status/time. Повтор одной и той же доставки не дублирует
-сообщение. Повторные firing напоминания Grafana с тем же startsAt тоже будут
-подавлены в течение retention; новая проблема после recovery имеет новый startsAt.
-При аварии между успешным Telegram send и фиксацией delivered возможен дубль:
-это at-least-once, у Telegram sendMessage нет idempotency key. После7дней
-гарантии дедупликации нет. Не удалять inbox при обновлениях.
+Дедупликация7дней: Grafana fingerprint/status/startsAt/endsAt; Kuma project/
+service/status/time. Повторные firing напоминания того же инцидента тоже подавлены.
+Новая проблема/recovery — отдельный ключ. Между успешным Telegram send и commit
+возможен дубль после аварии: at-least-once, sendMessage не имеет idempotency key.
+Это ограничение сохранено, exactly-once не заявляется.
 
-## Проверки
+## Проверки и откат
 
-13 mock tests прошли: очереди/retry/dedup/reopen, HTTP400/401/413/202,
-owner/private handlers и callbacks, collector. Реальных Telegram calls в unit
-тестах нет. Отдельный scripts/test-telegram-runtime.py действительно отправил
-тестовую проблему и восстановление через Grafana→webhook→тот же Bot; delivered
-зафиксирован после успешного ответа Telegram. Был также доставлен настоящий
-BackupStatusUnknown — регулярные backup пока не подтверждены.
-Это проверяет приём Telegram, а не прочтение владельцем.
+Go tests -race: 13 тестов очереди/legacy ID/schema, reopen/offset, bounded/retry/
+cancel, HTTP/auth/size, owner/private polling/callbacks, lock/status, config/
+private bind, Docker API/counter dedup/recreation/CPU и отказ сохранения метрик.
+Go vet прошёл. Пробный collector с реальным Docker проверен в отдельном temp root.
+Сквозной Grafana→Go→Telegram test действительно отправил test problem и recovery;
+это подтверждение Telegram API, не прочтения человеком. Runtime script отправляет
+реальные сообщения только при явном запуске, не включать его в CI.
 
-Тестовый runtime script отправляет реальные сообщения: запускать явно,
-не добавлять в CI. Скрипт создаёт отдельное правило/fast test route, проверяет
-firing/recovery и durable delivered, затем удаляет временное правило/gauge/route.
-Production не останавливается. Локальный отчёт reports/runtime-telegram-test.json
-игнорируется Git. Для чтения статуса очереди использовать sqlite read-only,
-не изменять delivered вручную.
+Для rollback: сохранить текущее состояние, восстановить прежний ~/serverbot/bot.py
+из protected backups/go-UTC (legacy module/config и .venv остались на месте),
+SIGTERM текущему MainPID. Для collector вернуть сохранённую user unit на Python,
+daemon-reload и запуск timer. Очередь и collector state совместимы: не откатывать
+их к старой копии без причины, иначе возможно повторное получение сообщений/
+счётчиков. Текущие файлы/тома сайтов при откате не трогать.

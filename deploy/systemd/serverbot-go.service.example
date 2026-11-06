@@ -1,0 +1,17 @@
+# Optional replacement for the EXISTING root serverbot.service ExecStart.
+# Do not install as a second polling service. Requires an administrator and daemon-reload.
+[Unit]
+Description=Home Server Telegram Bot (Go)
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=simple
+User=sysadmin
+WorkingDirectory=/home/sysadmin/serverbot
+EnvironmentFile=/home/sysadmin/serverbot/.env
+ExecStart=/home/sysadmin/serverbot/serverbot-go --root /home/sysadmin/serverbot
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+[Install]
+WantedBy=multi-user.target

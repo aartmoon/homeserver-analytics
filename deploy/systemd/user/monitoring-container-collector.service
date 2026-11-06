@@ -2,6 +2,6 @@
 Description=Monitoring Docker metadata to Prometheus textfile
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /home/sysadmin/monitoring/scripts/container-collector.py
+ExecStart=/home/sysadmin/monitoring/bin/container-collector --root /home/sysadmin/monitoring
 UMask=0077
 NoNewPrivileges=true

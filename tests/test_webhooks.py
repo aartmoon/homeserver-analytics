@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock
 import sys
-sys.path.insert(0, str(Path(__file__).parents[1] / 'integrations/serverbot'))
+sys.path.insert(0, str(Path(__file__).parents[1] / 'integrations/serverbot/legacy'))
 from aiohttp import web
 from monitoring_webhooks import MonitoringWebhooks
 

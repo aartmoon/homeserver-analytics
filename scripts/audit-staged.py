@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def git(*args):return subprocess.check_output(['git',*args],cwd=ROOT)
 
-paths=[p for p in git('diff','--cached','--name-only','-z').decode().split('\0') if p]
+paths=[p for p in git('diff','--cached','--name-only','--diff-filter=ACMR','-z').decode().split('\0') if p]
 values=[]
 secret_dir=ROOT/'secrets'
 if secret_dir.exists():
